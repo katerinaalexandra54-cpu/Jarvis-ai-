@@ -1,0 +1,70 @@
+
+name: Build JARVIS APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Extract JARVIS ZIP
+        run: |
+          unzip -q "jarvis-app-repaired.(2).zip" -d extracted
+          ls extracted/jarvis-app
+
+      - name: Install dependencies
+        working-directory: extracted/jarvis-app
+        run: |
+          npm ci
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+
+      - name: Configure Capacitor
+        working-directory: extracted/jarvis-app
+        run: |
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.you.jarvis",
+            "appName": "JARVIS",
+            "webDir": "dist"
+          }
+          EOF
+
+      - name: Build web app
+        working-directory: extracted/jarvis-app
+        run: npm run build
+
+      - name: Generate Android project
+        working-directory: extracted/jarvis-app
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Build APK
+        working-directory: extracted/jarvis-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-APK
+          path: extracted/jarvis-app/android/app/build/outputs/apk/debug/app-debug.apk

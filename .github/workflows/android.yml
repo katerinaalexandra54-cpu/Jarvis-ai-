@@ -1,4 +1,3 @@
-
 name: Build JARVIS APK
 
 on:
@@ -50,15 +49,26 @@ jobs:
         working-directory: extracted/jarvis-app
         run: npx cap sync android
 
-      - name: Build APK
+      - name: Decode signing key
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > extracted/jarvis-app/jarvis-release.jks
+
+      - name: Build signed release APK
         working-directory: extracted/jarvis-app/android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file="$GITHUB_WORKSPACE/extracted/jarvis-app/jarvis-release.jks" \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
 
-      - name: Upload APK
+      - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: JARVIS-APK
-          path: extracted/jarvis-app/android/app/build/outputs/apk/debug/app-debug.apk
-          
+          name: JARVIS-APK-SIGNED
+          path: extracted/jarvis-app/android/app/build/outputs/apk/release/app-release.apk

@@ -2,50 +2,37 @@
 name: Build JARVIS APK
 
 on:
-  workflow_dispatch:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
-  build:
+  apk:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: 17
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Extract JARVIS ZIP
+      - name: Extract JARVIS V2
         run: |
-          unzip -q "jarvis-app-repaired.(2).zip" -d extracted
-          ls extracted/jarvis-app
+          unzip -q "jarvis-app-v2.zip" -d extracted
+          test -f extracted/jarvis-app/package.json
 
       - name: Install dependencies
         working-directory: extracted/jarvis-app
-        run: |
-          npm ci
-          npm install @capacitor/core @capacitor/cli @capacitor/android
-
-      - name: Configure Capacitor
-        working-directory: extracted/jarvis-app
-        run: |
-          cat > capacitor.config.json <<'EOF'
-          {
-            "appId": "com.you.jarvis",
-            "appName": "JARVIS",
-            "webDir": "dist"
-          }
-          EOF
+        run: npm install
 
       - name: Build web app
         working-directory: extracted/jarvis-app
@@ -53,9 +40,15 @@ jobs:
 
       - name: Generate Android project
         working-directory: extracted/jarvis-app
-        run: |
-          npx cap add android
-          npx cap sync android
+        run: npx cap add android
+
+      - name: Set up Android bridge and icons
+        working-directory: extracted/jarvis-app
+        run: npm run android:setup
+
+      - name: Sync Capacitor
+        working-directory: extracted/jarvis-app
+        run: npx cap sync android
 
       - name: Build APK
         working-directory: extracted/jarvis-app/android
@@ -68,3 +61,4 @@ jobs:
         with:
           name: JARVIS-APK
           path: extracted/jarvis-app/android/app/build/outputs/apk/debug/app-debug.apk
+          

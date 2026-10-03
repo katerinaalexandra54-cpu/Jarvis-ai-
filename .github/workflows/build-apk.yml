@@ -179,9 +179,3 @@ jobs:
           tag_name: jarvis-v${{ github.run_number }}
           name: JARVIS v${{ github.run_number }}
           files: android/app/build/outputs/apk/release/jarvis-release.apk
-
-Important: I changed "permissions.contents" from "read" to "write" because the new GitHub Release step needs permission to create a release. Everything else keeps the workflow structure you showed me.
-
-Replace the entire file with the version above, then Commit changes.
-
-Don't run the workflow yet after committing. Tell me when the commit is done.

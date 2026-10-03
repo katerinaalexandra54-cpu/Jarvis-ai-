@@ -1,0 +1,19 @@
+# One-click deploy on Render: New > Blueprint > pick this repo. Choose the instance plan in the dashboard.
+services:
+  - type: web
+    name: jarvis-server
+    runtime: docker
+    healthCheckPath: /api/health
+    envVars:
+      - key: AI_PROVIDER
+        value: openrouter
+      - key: OPENROUTER_API_KEY   # paste your key in the Render dashboard (never in git)
+        sync: false
+      - key: JARVIS_TOKEN_SECRET  # generated for you
+        generateValue: true
+      - key: JARVIS_INVITE_CODES  # the access code(s) you type into the app once, comma-separated
+        sync: false
+      - key: ALLOWED_MODELS       # optional, e.g. openai/gpt-4o,openai/gpt-4o-mini
+        sync: false
+      - key: DAILY_LIMIT
+        value: "500"

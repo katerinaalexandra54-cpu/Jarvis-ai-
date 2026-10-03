@@ -1,0 +1,10 @@
+{
+  "appId": "com.you.jarvis",
+  "appName": "Jarvis",
+  "webDir": "dist",
+  "backgroundColor": "#050a14",
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  },
+  "android": { "allowMixedContent": false }
+}

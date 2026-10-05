@@ -1,33 +1,22 @@
 name: Build Jarvis APK
-
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
 permissions:
-  contents: write
-
+  contents: read
 jobs:
   apk:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
+        with: { node-version: 20, cache: npm }
       - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
+        with: { distribution: temurin, java-version: 17 }
       - run: npm ci
-
       - run: npm test
-
       - name: Require the server-backed AI gateway
         run: |
           if [ -z "$VITE_API" ]; then
@@ -36,17 +25,12 @@ jobs:
           fi
         env:
           VITE_API: ${{ vars.VITE_API }}
-
       - run: npm run build
         env:
           VITE_API: ${{ vars.VITE_API }}
-
       - run: test -d android || npx cap add android
-
       - run: node scripts/setup-android.mjs
-
       - run: npx cap sync android
-
       - name: Verify release signing secrets are configured
         shell: bash
         env:
@@ -62,7 +46,6 @@ jobs:
               exit 1
             fi
           done
-
       - name: Set increasing Android version code
         shell: bash
         working-directory: android/app
@@ -77,11 +60,9 @@ jobs:
             exit 1
           fi
           echo "Android versionCode set to ${VERSION_CODE}."
-
       - name: Build debug and unsigned release variants
         run: chmod +x gradlew && ./gradlew --no-daemon assembleDebug assembleRelease
         working-directory: android
-
       - name: Sign and verify the release APK with the permanent keystore
         shell: bash
         working-directory: android
@@ -92,51 +73,37 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
-
           KEYSTORE_PATH="$RUNNER_TEMP/jarvis-release.keystore"
           ALIGNED_APK="$RUNNER_TEMP/jarvis-release-aligned.apk"
           UNSIGNED_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
           SIGNED_APK="app/build/outputs/apk/release/jarvis-release.apk"
-
-          cleanup() {
-            rm -f "$KEYSTORE_PATH" "$ALIGNED_APK"
-          }
+          cleanup() { rm -f "$KEYSTORE_PATH" "$ALIGNED_APK"; }
           trap cleanup EXIT
 
           : "${KEYSTORE_BASE64:?Required secret KEYSTORE_BASE64 is missing}"
           : "${KEYSTORE_PASSWORD:?Required secret KEYSTORE_PASSWORD is missing}"
           : "${KEY_ALIAS:?Required secret KEY_ALIAS is missing}"
           : "${KEY_PASSWORD:?Required secret KEY_PASSWORD is missing}"
-
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
           chmod 600 "$KEYSTORE_PATH"
-
           test -s "$KEYSTORE_PATH"
           test -f "$UNSIGNED_APK"
 
           SDK_ROOT="${ANDROID_SDK_ROOT:-}"
-
           if [[ -z "$SDK_ROOT" || ! -d "$SDK_ROOT/build-tools" ]]; then
             SDK_ROOT="${ANDROID_HOME:-}"
           fi
-
           if [[ -z "$SDK_ROOT" || ! -d "$SDK_ROOT/build-tools" ]]; then
             echo "::error::Android SDK root is not configured on the runner."
             exit 1
           fi
-
           BUILD_TOOLS_DIR="$(find "$SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | sort -V | tail -n 1)"
-
           if [[ -z "$BUILD_TOOLS_DIR" || ! -x "$BUILD_TOOLS_DIR/zipalign" || ! -x "$BUILD_TOOLS_DIR/apksigner" || ! -x "$BUILD_TOOLS_DIR/aapt" ]]; then
             echo "::error::Android build-tools with zipalign, apksigner and aapt were not found."
             exit 1
           fi
 
-          "$BUILD_TOOLS_DIR/zipalign" \
-            -f -p 4 \
-            "$UNSIGNED_APK" \
-            "$ALIGNED_APK"
-
+          "$BUILD_TOOLS_DIR/zipalign" -f -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
           "$BUILD_TOOLS_DIR/apksigner" sign \
             --ks "$KEYSTORE_PATH" \
             --ks-key-alias "$KEY_ALIAS" \
@@ -144,38 +111,22 @@ jobs:
             --key-pass env:KEY_PASSWORD \
             --out "$SIGNED_APK" \
             "$ALIGNED_APK"
-
-          "$BUILD_TOOLS_DIR/apksigner" verify \
-            --verbose \
-            --print-certs \
-            "$SIGNED_APK"
-
+          "$BUILD_TOOLS_DIR/apksigner" verify --verbose --print-certs "$SIGNED_APK"
           PACKAGE_INFO="$("$BUILD_TOOLS_DIR/aapt" dump badging "$SIGNED_APK")"
-
           if [[ "$PACKAGE_INFO" != *"package: name='com.you.jarvis'"* ]]; then
             echo "::error::The release APK application ID is not com.you.jarvis."
             exit 1
           fi
-
           rm -f "$UNSIGNED_APK"
-
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: jarvis-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-
       - name: Upload permanently signed release APK
         uses: actions/upload-artifact@v4
         with:
           name: jarvis-signed-release-apk
           path: android/app/build/outputs/apk/release/jarvis-release.apk
           if-no-files-found: error
-
-      - name: Create GitHub release with signed APK
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: jarvis-v${{ github.run_number }}
-          name: JARVIS v${{ github.run_number }}
-          files: android/app/build/outputs/apk/release/jarvis-release.apk

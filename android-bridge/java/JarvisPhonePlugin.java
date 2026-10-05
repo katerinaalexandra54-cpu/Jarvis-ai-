@@ -10,6 +10,8 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.database.Cursor;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
 import android.hardware.camera2.CameraManager;
 import android.net.Uri;
 import android.os.Build;
@@ -19,6 +21,7 @@ import android.provider.ContactsContract;
 import android.provider.MediaStore;
 import android.provider.Settings;
 import android.provider.Telephony;
+import android.media.MediaRecorder;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -38,6 +41,13 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
+import org.json.JSONObject;
+import org.vosk.Model;
+import org.vosk.Recognizer;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,6 +70,12 @@ public class JarvisPhonePlugin extends Plugin {
     private TextToSpeech tts;
     private boolean ttsReady = false;
     private String queuedSpeech = null;
+    private static final int VOSK_SAMPLE_RATE = 16000;
+    private static final String VOSK_MODEL_ASSET = "vosk-model-small-en-us-0.15";
+    private Model voskModel;
+    private AudioRecord offlineRecorder;
+    private Thread offlineThread;
+    private volatile boolean stopOffline = false;
 
     private boolean has(String permission) {
         return ContextCompat.checkSelfPermission(getContext(), permission) == PackageManager.PERMISSION_GRANTED;
@@ -85,8 +101,14 @@ public class JarvisPhonePlugin extends Plugin {
         else notifyListeners("speechError", event);
     }
 
-    private void speakNow(String text) {
+    private void speakNow(String text, String languageTag) {
         try {
+            Locale requested = Locale.forLanguageTag(languageTag == null || languageTag.trim().isEmpty() ? Locale.getDefault().toLanguageTag() : languageTag);
+            int language = tts.setLanguage(requested);
+            if (language == TextToSpeech.LANG_MISSING_DATA || language == TextToSpeech.LANG_NOT_SUPPORTED) {
+                reportSpeechError("The selected Android voice is not available.");
+                return;
+            }
             if (tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis") == TextToSpeech.ERROR)
                 reportSpeechError("Android could not speak the response.");
         } catch (Exception e) {
@@ -162,7 +184,8 @@ public class JarvisPhonePlugin extends Plugin {
 
                     @Override
                     public void onError(int error) {
-                        call.reject("I didn't catch that (code " + error + ").");
+                        boolean quiet = (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT);
+                        call.reject(quiet ? "I didn't hear anything." : "I didn't catch that (code " + error + ").", quiet ? "NO_SPEECH" : null);
                         destroyRecognizer();
                     }
 
@@ -198,6 +221,110 @@ public class JarvisPhonePlugin extends Plugin {
         });
     }
 
+    private void copyAssetTree(String assetPath, File target) throws IOException {
+        String[] children = getContext().getAssets().list(assetPath);
+        if (children != null && children.length > 0) {
+            if (!target.exists() && !target.mkdirs()) throw new IOException("Could not create Vosk model directory.");
+            for (String child : children) copyAssetTree(assetPath + "/" + child, new File(target, child));
+            return;
+        }
+        File parent = target.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) throw new IOException("Could not create Vosk model directory.");
+        try (java.io.InputStream in = getContext().getAssets().open(assetPath); FileOutputStream out = new FileOutputStream(target)) {
+            byte[] buffer = new byte[8192]; int n;
+            while ((n = in.read(buffer)) >= 0) { if (n > 0) out.write(buffer, 0, n); }
+        }
+    }
+
+    private synchronized Model getVoskModel() throws IOException {
+        if (voskModel != null) return voskModel;
+        File modelDir = new File(getContext().getFilesDir(), VOSK_MODEL_ASSET);
+        File marker = new File(modelDir, "am/final.mdl");
+        if (!marker.exists()) copyAssetTree(VOSK_MODEL_ASSET, modelDir);
+        if (!marker.exists()) throw new IOException("The bundled Vosk model is unavailable.");
+        voskModel = new Model(modelDir.getAbsolutePath());
+        return voskModel;
+    }
+
+    private static String jsonText(String json, String key) {
+        try { return new JSONObject(json).optString(key, "").trim(); } catch (Exception ignored) { return ""; }
+    }
+
+    private void finishOffline(PluginCall call, String text) {
+        JSObject result = new JSObject(); result.put("text", text == null ? "" : text);
+        call.resolve(result);
+    }
+
+    private void failOffline(PluginCall call, String message) { call.reject(message); }
+
+    private synchronized void stopOfflineRecognition() {
+        stopOffline = true;
+        if (offlineRecorder != null) { try { offlineRecorder.stop(); } catch (Exception ignored) { } }
+    }
+
+    private void runOfflineRecognition(final PluginCall call, final boolean wakeProbe) {
+        if (!has(Manifest.permission.RECORD_AUDIO)) { failOffline(call, "Microphone permission is needed for offline recognition."); return; }
+        stopOfflineRecognition();
+        stopOffline = false;
+        offlineThread = new Thread(() -> {
+            Recognizer recognizer = null;
+            AudioRecord recorder = null;
+            long deadline = System.currentTimeMillis() + (wakeProbe ? 7000 : 15000);
+            boolean detected = false;
+            try {
+                Model model = getVoskModel();
+                recognizer = wakeProbe
+                        ? new Recognizer(model, VOSK_SAMPLE_RATE, "[\"hey jarvis\", \"jarvis\", \"[unk]\"]")
+                        : new Recognizer(model, VOSK_SAMPLE_RATE);
+                int min = AudioRecord.getMinBufferSize(VOSK_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+                if (min <= 0) throw new IOException("This device cannot provide a 16 kHz microphone stream.");
+                recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, VOSK_SAMPLE_RATE,
+                        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(min * 2, 4096));
+                if (recorder.getState() != AudioRecord.STATE_INITIALIZED) throw new IOException("Android could not initialize the microphone.");
+                offlineRecorder = recorder;
+                recorder.startRecording();
+                byte[] buffer = new byte[Math.max(min, 4096)];
+                while (!stopOffline && System.currentTimeMillis() < deadline) {
+                    int n = recorder.read(buffer, 0, buffer.length);
+                    if (n <= 0) continue;
+                    if (recognizer.acceptWaveForm(buffer, n)) {
+                        String text = jsonText(recognizer.getResult(), "text");
+                        if (wakeProbe) { if (text.matches("(?i).*\\bhey\\s+jarvis\\b.*|(?i).*\\bjarvis\\b.*")) { detected = true; break; } }
+                        else if (!text.isEmpty()) { finishOffline(call, text); return; }
+                    } else if (wakeProbe) {
+                        String partial = jsonText(recognizer.getPartialResult(), "partial");
+                        if (!partial.isEmpty()) emit("offlinePartial", partial);
+                        if (partial.matches("(?i).*\\bhey\\s+jarvis\\b.*|(?i).*\\bjarvis\\b.*")) { detected = true; break; }
+                    } else {
+                        String partial = jsonText(recognizer.getPartialResult(), "partial");
+                        if (!partial.isEmpty()) emit("partial", partial);
+                    }
+                }
+                if (wakeProbe) {
+                    JSObject result = new JSObject(); result.put("detected", detected); result.put("supported", true); call.resolve(result);
+                } else {
+                    finishOffline(call, jsonText(recognizer.getFinalResult(), "text"));
+                }
+            } catch (Exception e) {
+                failOffline(call, "Offline speech recognition failed: " + (e.getMessage() == null ? "unknown error" : e.getMessage()));
+            } finally {
+                if (recorder != null) { try { recorder.stop(); } catch (Exception ignored) { } recorder.release(); }
+                if (recognizer != null) recognizer.close();
+                offlineRecorder = null; offlineThread = null;
+            }
+        }, wakeProbe ? "jarvis-vosk-wake-probe" : "jarvis-vosk-recognition");
+        offlineThread.start();
+    }
+
+    @PluginMethod
+    public void listenOffline(PluginCall call) { runOfflineRecognition(call, false); }
+
+    @PluginMethod
+    public void probeVoskWake(PluginCall call) { runOfflineRecognition(call, true); }
+
+    @PluginMethod
+    public void stopOffline(PluginCall call) { stopOfflineRecognition(); call.resolve(); }
+
     @PluginMethod
     public void stopListening(final PluginCall call) {
         getActivity().runOnUiThread(() -> {
@@ -209,6 +336,7 @@ public class JarvisPhonePlugin extends Plugin {
     @PluginMethod
     public void speak(PluginCall call) {
         final String text = call.getString("text", "");
+        final String languageTag = call.getString("lang", Locale.getDefault().toLanguageTag());
         if (tts == null) {
             queuedSpeech = text;
             try {
@@ -223,7 +351,7 @@ public class JarvisPhonePlugin extends Plugin {
                         reportSpeechError("Android text-to-speech is unavailable.");
                         return;
                     }
-                    int language = tts.setLanguage(Locale.getDefault());
+                    int language = tts.setLanguage(Locale.forLanguageTag(languageTag));
                     if (language == TextToSpeech.LANG_MISSING_DATA || language == TextToSpeech.LANG_NOT_SUPPORTED) {
                         queuedSpeech = null;
                         reportSpeechError("The selected Android voice is not available.");
@@ -232,7 +360,7 @@ public class JarvisPhonePlugin extends Plugin {
                     if (queuedSpeech != null) {
                         String pending = queuedSpeech;
                         queuedSpeech = null;
-                        speakNow(pending);
+                        speakNow(pending, languageTag);
                     }
                 });
             } catch (Exception e) {
@@ -240,7 +368,7 @@ public class JarvisPhonePlugin extends Plugin {
                 reportSpeechError("Android text-to-speech could not start.");
             }
         } else if (ttsReady) {
-            speakNow(text);
+            speakNow(text, languageTag);
         } else {
             queuedSpeech = text;
         }
@@ -656,6 +784,8 @@ public class JarvisPhonePlugin extends Plugin {
     @Override
     protected void handleOnDestroy() {
         destroyRecognizer();
+        stopOfflineRecognition();
+        if (voskModel != null) { try { voskModel.close(); } catch (Exception ignored) { } voskModel = null; }
         if (tts != null) {
             try { if (ttsReady) tts.stop(); } catch (Exception ignored) { }
             try { tts.shutdown(); } catch (Exception ignored) { }
@@ -676,8 +806,6 @@ public class JarvisPhonePlugin extends Plugin {
 
     @PluginMethod
     public void startWake(PluginCall call) {
-        String key = call.getString("accessKey", "").trim();
-        if (key.isEmpty()) { call.reject("Add your Picovoice AccessKey first (Settings > Voice & Speech)."); return; }
         if (!has(Manifest.permission.RECORD_AUDIO)) { call.reject("Microphone permission is needed. Tap Allow permissions first."); return; }
         if ((Build.VERSION.SDK_INT >= 33 && !has(Manifest.permission.POST_NOTIFICATIONS))
                 || !NotificationManagerCompat.from(getContext()).areNotificationsEnabled()) {
@@ -692,7 +820,6 @@ public class JarvisPhonePlugin extends Plugin {
         JarvisWakeService.listener = wakeListener;
         Float sens = call.getFloat("sensitivity", 0.7f);
         Intent i = new Intent(getContext(), JarvisWakeService.class);
-        i.putExtra(JarvisWakeService.EXTRA_KEY, key);
         i.putExtra(JarvisWakeService.EXTRA_SENSITIVITY, sens == null ? 0.7f : sens.floatValue());
         try {
             ContextCompat.startForegroundService(getContext(), i);

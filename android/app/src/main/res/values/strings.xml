@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="title_activity_main">Jarvis</string>
+    <string name="package_name">com.you.jarvis</string>
+    <string name="custom_url_scheme">com.you.jarvis</string>
+    <string name="jarvis_accessibility_description">Lets Jarvis press Home, Back and Recents, open notifications and take screenshots when you ask.</string>
+</resources>

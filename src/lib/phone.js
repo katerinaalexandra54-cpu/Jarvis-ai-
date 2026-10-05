@@ -9,11 +9,11 @@ export const openAccessibility = () => Native.openAccessibilitySettings();
 
 const plain = t => String(t).replace(/[*_#`>]/g, '').replace(/\s+/g, ' ').trim();
 
-export async function speak(text) {
+export async function speak(text, lang = 'en-US') {
   const t = plain(text).slice(0, 700);
   if (!t) return;
-  if (isNative()) { try { await Native.speak({ text: t }); } catch { /* speech engine missing */ } return; }
-  if ('speechSynthesis' in window) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(t)); }
+  if (isNative()) { try { await Native.speak({ text: t, lang }); } catch { /* speech engine missing */ } return; }
+  if ('speechSynthesis' in window) { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang = lang; speechSynthesis.speak(u); }
 }
 export function stopSpeaking() {
   if (isNative()) Native.stopSpeaking().catch(() => {});
@@ -26,13 +26,18 @@ export function stopListening() {
   else webRec?.stop();
 }
 
-export async function listen(onPartial = () => {}, lang = 'en-US', onStarted = () => {}) {
+export async function listen(onPartial = () => {}, lang = 'en-US', onStarted = () => {}, options = {}) {
   if (isNative()) {
     let s = await Native.status();
     if (!s.mic) { s = await Native.requestAllPermissions(); if (!s.mic) throw new Error('Microphone permission is needed. Allow it in Settings > Phone Control.'); }
     const h = await Native.addListener('partial', e => onPartial(e.text));
     const started = await Native.addListener('listeningStarted', () => onStarted());
-    try { return (await Native.listen({ lang })).text || ''; } finally { h.remove(); started.remove(); }
+    try {
+      const result = options.offline && /^en-US$/i.test(lang) && Native.listenOffline
+        ? await Native.listenOffline({ lang })
+        : await Native.listen({ lang });
+      return result.text || '';
+    } finally { h.remove(); started.remove(); }
   }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) throw new Error('Voice input works in the Android app or Chrome.');
@@ -45,6 +50,14 @@ export async function listen(onPartial = () => {}, lang = 'en-US', onStarted = (
     r.onend = () => resolve(last);
     r.start(); onStarted();
   });
+}
+
+export async function probeVoskWake(onPartial = () => {}) {
+  if (!isNative() || !Native.probeVoskWake) return { detected: false, supported: false };
+  let s = await Native.status();
+  if (!s.mic) { s = await Native.requestAllPermissions(); if (!s.mic) throw new Error('Microphone permission is needed.'); }
+  const h = await Native.addListener('offlinePartial', e => onPartial(e.text || ''));
+  try { return await Native.probeVoskWake(); } finally { h.remove(); }
 }
 
 const looksLikeNumber = s => /^[+\d][\d\s\-().]{4,}$/.test(s.trim());
@@ -100,7 +113,7 @@ export const device = {
 // ---- Wake word ("Hey JARVIS"). Native only; every call is a safe no-op in a browser. ----
 export const wake = {
   supported: () => isNative(),
-  start: (accessKey, sensitivity = 0.7) => Native.startWake({ accessKey, sensitivity }),
+  start: (sensitivity = 0.7) => Native.startWake({ sensitivity }),
   stop: () => (isNative() ? Native.stopWake().catch(() => {}) : Promise.resolve()),
   pause: () => (isNative() ? Native.pauseWake().catch(() => {}) : Promise.resolve()),
   resume: () => (isNative() ? Native.resumeWake().catch(() => {}) : Promise.resolve()),

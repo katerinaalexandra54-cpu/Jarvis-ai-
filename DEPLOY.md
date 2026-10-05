@@ -34,14 +34,23 @@ Ask JARVIS anything. A box asks for your **access code** (the `JARVIS_INVITE_COD
 ## Everyday operations
 - **Block a lost/stolen device:** add its id to `JARVIS_REVOKED` (ids appear as the token `sub`).
 - **Change the AI provider/model:** change `AI_PROVIDER` / `ALLOWED_MODELS` on the server. No app update is needed.
-  To add OpenAI: uncomment the `openai` entry in `server/ai.js`, set `OPENAI_API_KEY`, set `AI_PROVIDER=openai`.
+  Adapters live in `server/providers/` (`openrouter`, `openai`, `openai-compatible`). To switch: set `AI_PROVIDER` and that provider's key (see `.env.example`); optionally pin `AI_MODEL`. The `openai` and `openai-compatible` adapters are unit-tested against a mock only, so test them against the real API before relying on them.
 - **Rotate everything:** change `JARVIS_TOKEN_SECRET`; every device must enter the access code again.
 - **Developer builds only:** `VITE_ALLOW_DIRECT=true` lets you paste an OpenRouter key into the app. Never ship that build.
 
 ## Wake word ("Hey JARVIS")
-1. Create a free account at console.picovoice.ai and copy your **AccessKey**.
-2. In the app: Settings > Voice & Speech > paste the AccessKey > Save > switch on the wake word.
-3. Settings > Phone Control > Allow permissions (microphone, notifications, location).
-Optional custom phrase: train "Hey JARVIS" in the Picovoice Console (Android .ppn) and save it as
-`android-bridge/assets/hey-jarvis.ppn`; the build bundles it automatically and the app uses it instead of the built-in "Jarvis".
-Check Picovoice's current terms and limits for a product you plan to publish.
+1. No account, API key, payment, or cloud wake service is required. The app bundles the open-source
+   sherpa-onnx English GigaSpeech KWS model and the generated `HEY JARVIS` keyword file.
+2. Build with an Android SDK/NDK and run `npm run android:sync`; the setup copies the official sherpa-onnx
+   v1.13.8 JNI libraries for arm64-v8a, armeabi-v7a, x86, and x86_64.
+3. In the app: Settings > Phone Control > Allow permissions (microphone and notifications), then enable
+   the wake word under Settings > Voice & Speech.
+4. Validate accuracy, false triggers, CPU, battery, screen-off behavior, and OEM restrictions on real devices
+   before shipping. If accuracy is insufficient, fine-tune the open English KWS base model with JARVIS-specific
+   positive and hard-negative recordings, export to ONNX, and replace the model assets.
+
+## Railway
+`server/` runs unchanged on Railway using the root `Dockerfile` (it listens on `$PORT`). Set the same variables as in the table above in the Railway service's Variables tab; keep `OPENROUTER_API_KEY` and `JARVIS_TOKEN_SECRET` there only. Set `VITE_API` in GitHub to the Railway public URL. This repo contains no Railway config file on purpose, so it cannot override your existing service settings.
+
+## Server changes in this revision
+Removed the unused routes `/api/chat` (hardcoded Anthropic call), `/api/voice/transcribe` and `/api/phone/*`. `/api/ai/chat` now authenticates before reading the body, has a 60 s upstream timeout, caps message and tool counts, and refunds a device's daily quota when the provider fails.

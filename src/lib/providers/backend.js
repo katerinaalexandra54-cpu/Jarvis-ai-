@@ -16,11 +16,16 @@ const deviceId = () => {
   return id;
 };
 
+const TIMEOUT_MS = 70000; // a little above the server's own 60 s provider timeout
+
 async function request(base, path, { body, token } = {}) {
   let r;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
   try {
-    r = await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
-  } catch { throw new NetworkError(); }
+    r = await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body), signal: ctl.signal });
+  } catch (e) { throw e?.name === 'AbortError' ? new NetworkError('The JARVIS server took too long to answer. Try again.') : new NetworkError(); }
+  finally { clearTimeout(timer); }
   let d = {}; try { d = await r.json(); } catch { /* empty body */ }
   return { r, d };
 }

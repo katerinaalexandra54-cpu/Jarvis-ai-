@@ -7,7 +7,7 @@ export const DEFAULTS = {
   provider: 'openrouter',
   apiKey: '',
   wakeWord: false,
-  picovoiceKey: '',
+  offlineRecognition: false,
   model: 'openai/gpt-4o-mini',
   imageModel: 'google/gemini-3.1-flash-image-preview',
   speakReplies: true,

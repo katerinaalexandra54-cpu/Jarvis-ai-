@@ -35,7 +35,7 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
   useEffect(() => { save('chat', messages.slice(-60)); save('chatId', chatId.current); }, [messages]);
 
   const push = useCallback(m => setMessages(ms => [...ms, { id: uid(), ts: Date.now(), ...m }]), []);
-  const reply = useCallback((text, speakIt) => { push({ from: 'jarvis', text }); if (speakIt) speak(text); }, [push]);
+  const reply = useCallback((text, speakIt) => { push({ from: 'jarvis', text }); if (speakIt) speak(text, settings.lang); }, [push, settings.lang]);
 
   // Called by the call/text tools. Resolves true/false when the user answers yes/no (or taps a button).
   const confirmAction = useCallback(({ kind, label, body }) => new Promise(resolve => {
@@ -43,7 +43,7 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
     const item = { action: { type: kind === 'call' ? 'call' : 'sendSms' }, label, resolve };
     setPending(item);
     push({ from: 'jarvis', text: ask, confirm: true });
-    if (turn.current.speakIt) speak(ask);
+    if (turn.current.speakIt) speak(ask, settings.lang);
     if (turn.current.viaVoice) setTimeout(() => { if (pendingRef.current === item) voiceRef.current?.(); }, 2800);
     setTimeout(() => { if (pendingRef.current === item) { setPending(null); resolve(false); } }, 60000); // never hang forever
   }), [push]);
@@ -98,7 +98,7 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
   }, [settings, user, push, reply, confirmAction, askKey, upsertHistory]);
   sendRef.current = send;
 
-  const wakeOn = isNative() && !!settings.wakeWord && !!settings.picovoiceKey;
+  const wakeOn = isNative() && !!settings.wakeWord;
   const wakeOnRef = useRef(wakeOn); wakeOnRef.current = wakeOn;
 
   // Give the microphone back to the wake word once JARVIS is completely idle (not thinking, not waiting for a
@@ -122,21 +122,21 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
     if (wakeOnRef.current) await wake.pause(); // only one thing may use the mic at a time
     stopSpeaking(); listeningRef.current = true; setListening(true); setPartial('');
     try {
-      const heard = await listen(setPartial, settings.lang, () => { if (fromWake) wake.ack(); });
+      const heard = await listen(setPartial, settings.lang, () => { if (fromWake) wake.ack(); }, { offline: settings.offlineRecognition });
       listeningRef.current = false; setListening(false); setPartial('');
       if (heard.trim()) await send(heard, { viaVoice: true });
-    } catch (e) { listeningRef.current = false; setListening(false); setPartial(''); notify(e.message); }
+    } catch (e) { listeningRef.current = false; setListening(false); setPartial(''); if (e?.code !== 'NO_SPEECH') notify(e.message); }
     finally { resumeWhenIdle(); }
-  }, [settings.lang, send, notify, resumeWhenIdle]);
+  }, [settings.lang, settings.offlineRecognition, send, notify, resumeWhenIdle]);
   voiceRef.current = startVoice;
 
   // Start/stop the always-listening service with the setting (and again each time the app opens, because Android
   // does not restart a microphone service by itself after a reboot).
   useEffect(() => {
     if (!isNative()) return;
-    if (wakeOn) wake.start(settings.picovoiceKey).catch(e => { notify(e.message); setSettings?.(s => ({ ...s, wakeWord: false })); });
+    if (wakeOn) wake.start().catch(e => { notify(e.message); setSettings?.(s => ({ ...s, wakeWord: false })); });
     else wake.stop();
-  }, [wakeOn, settings.picovoiceKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wakeOn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isNative()) return undefined;

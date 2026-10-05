@@ -64,7 +64,7 @@ Install a build made with `VITE_API` set (DEPLOY.md). Run both allowed- and deni
 ### Wake word (the riskiest part: please test carefully and report)
 | # | Do | Expected |
 |---|---|---|
-| W1 | Settings > Voice & Speech: paste Picovoice AccessKey, Save; grant Microphone and Notifications; switch wake word on | Notification "JARVIS is listening". A bad key shows an error and the switch turns off. |
+| W1 | Settings > Voice & Speech: grant Microphone and Notifications; switch wake word on | Notification "JARVIS is listening". No account, API key, or network is required for wake detection. |
 | W2 | App open, say "Hey JARVIS, what time is it?" | Beep, then it listens and answers aloud. |
 | W3 | Press Home (app in background), say "Hey JARVIS, turn on the flashlight" | Works. If the WebView is frozen by your phone you instead get a "Tap to talk" notification within 2 seconds. Report which one you get and your phone model. |
 | W4 | Lock the screen and try again | Same two outcomes as W3. |
@@ -73,3 +73,6 @@ Install a build made with `VITE_API` set (DEPLOY.md). Run both allowed- and deni
 | W7 | Tap "Turn off" in the foreground notification | The service stops and the saved wake-word setting also turns off. |
 | W8 | Reboot the phone | Wake word is off until you open the app (Android does not allow a microphone service to restart itself). |
 | W9 | Normal day of use | Check battery use in Android settings after several hours. |
+| W10 | Say similar phrases and background speech ("hey service", "Jarvis", TV/radio) | Record false activations and missed "Hey JARVIS" detections; tune the `#0.55` threshold only after a repeatable test set. |
+| W11 | Fresh install and first wake | Measure model-copy/startup time, APK/storage size, CPU, and memory. |
+| W12 | Repeat W2-W9 on at least one arm64 phone and one emulator/ABI if applicable | Confirm the bundled sherpa-onnx JNI libraries load and report exact device/Android versions. |

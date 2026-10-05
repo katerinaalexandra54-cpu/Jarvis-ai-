@@ -56,7 +56,6 @@ export function SettingsPage({ page }) {
   const [key, setKey] = useState(settings.apiKey); const [showKey, setShowKey] = useState(false);
   const [model, setModel] = useState(settings.model); const [imageModel, setImageModel] = useState(settings.imageModel);
   const [st, setSt] = useState(null);
-  const [pvKey, setPvKey] = useState(settings.picovoiceKey || '');
   const refresh = () => phoneStatus().then(setSt).catch(() => {});
   useEffect(() => { if (page !== 'phone') return; refresh(); const t = setInterval(refresh, 1500); return () => clearInterval(t); }, [page]); // eslint-disable-line
   const title = ITEMS.find(i => i[2] === page)?.[1] || 'Settings';
@@ -98,12 +97,12 @@ export function SettingsPage({ page }) {
           <h3 className="label">Language</h3>
           <label className="select glass"><select value={settings.lang} onChange={e => setSettings({ ...settings, lang: e.target.value })}>{VOICES.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select><Icon n="chevdown" size={18} /></label>
           <button className="btn glass-btn" onClick={() => speak(`Hi ${user.name.split(' ')[0]}, this is how I sound.`)}><Icon n="volume" size={18} />Test voice</button>
+          <Toggle on={!!settings.offlineRecognition} set={v => setSettings({ ...settings, offlineRecognition: v })} label="Use offline speech recognition" sub="Vosk processes commands on this phone; AI replies still use the protected backend" />
+          <p className="muted small-note">The bundled Vosk model is compact US English (about 68 MB installed). Offline recognition is opt-in and still needs physical-device testing.</p>
           <h3 className="label">Wake word</h3>
           {!isNative() && <p className="notice glass">The wake word works in the Android app.</p>}
-          <Toggle on={!!settings.wakeWord} set={v => setSettings({ ...settings, wakeWord: v })} label={'Say "Hey JARVIS" to wake'} sub="Listens in the background with a small notification. Uses some battery." />
-          <label className="field glass"><Icon n="key" size={19} /><input type="password" value={pvKey} onChange={e => setPvKey(e.target.value)} placeholder="Picovoice AccessKey" autoCapitalize="off" spellCheck="false" /></label>
-          <button className="btn glass-btn" onClick={() => { setSettings({ ...settings, picovoiceKey: pvKey.trim() }); notify('Saved.'); }}>Save AccessKey</button>
-          <p className="muted small-note">The wake word engine is Picovoice Porcupine. Get a free AccessKey at console.picovoice.ai. It listens for "Jarvis" (saying "Hey Jarvis" works). Turn on Notifications and Microphone in Phone Control first.</p></>}
+          <Toggle on={!!settings.wakeWord} set={v => setSettings({ ...settings, wakeWord: v })} label={'Say "Hey JARVIS" to wake'} sub="Uses sherpa-onnx on-device with a visible foreground-service notification." />
+          <p className="muted small-note">Sherpa-onnx uses the bundled English KWS model and a conservative Hey JARVIS threshold. It is fully offline; accuracy, false triggers, battery use, and screen-off behavior require physical-device testing. Turn on Notifications and Microphone in Phone Control first.</p></>}
 
         {page === 'phone' && <>
           {!isNative() && <p className="notice glass">Phone control works in the Android app. In a browser you can still chat and use the tools.</p>}

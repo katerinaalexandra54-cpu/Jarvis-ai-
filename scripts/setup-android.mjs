@@ -25,11 +25,14 @@ let src = fs.readFileSync(mainActivity, 'utf8');
 const pkg = src.match(/^package\s+([\w.]+);/m)[1];
 const javaDir = path.dirname(mainActivity);
 
-// 2. Copy Java files under the app's package
+// 2. Copy Jarvis Java files under the app's package
 for (const f of fs.readdirSync(path.join(bridge, 'java'))) {
   let code = fs.readFileSync(path.join(bridge, 'java', f), 'utf8').replace(/^package\s+[\w.]+;/m, `package ${pkg};`);
   fs.writeFileSync(path.join(javaDir, f), code);
 }
+// 2b. Copy the official sherpa-onnx Java API without rewriting its package: JNI symbols depend on it.
+const sherpaJavaSrc = path.join(bridge, 'java-sherpa');
+if (fs.existsSync(sherpaJavaSrc)) fs.cpSync(sherpaJavaSrc, path.join(main, 'java'), { recursive: true, force: true });
 
 // 3. Register the plugin in MainActivity
 if (!src.includes('JarvisPhonePlugin')) {
@@ -62,7 +65,7 @@ if (!sx.includes('jarvis_accessibility_description')) {
 const manifestPath = path.join(main, 'AndroidManifest.xml');
 let mf = fs.readFileSync(manifestPath, 'utf8');
 if (!mf.includes('JarvisAccessibilityService')) {
-  const perms = ['RECORD_AUDIO', 'READ_CONTACTS', 'CALL_PHONE', 'SEND_SMS', 'READ_SMS', 'READ_PHONE_STATE']
+  const perms = ['RECORD_AUDIO', 'READ_CONTACTS', 'CALL_PHONE', 'SEND_SMS', 'READ_SMS']
     .map(p => `    <uses-permission android:name="android.permission.${p}" />`).join('\n')
     + '\n    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />\n    <uses-permission android:name="android.permission.FLASHLIGHT" />\n';
   const queries = `    <queries>
@@ -85,7 +88,11 @@ if (!mf.includes('JarvisAccessibilityService')) {
   fs.writeFileSync(manifestPath, mf);
 }
 
-// 6. Wake word ("Hey JARVIS"): foreground microphone service, extra permissions, Porcupine SDK. Idempotent.
+// 5b. Do not let Android auto-backup copy app data (it contains the device token and chat history) to the cloud.
+mf = fs.readFileSync(manifestPath, 'utf8');
+if (mf.includes('android:allowBackup="true"')) { fs.writeFileSync(manifestPath, mf.replace('android:allowBackup="true"', 'android:allowBackup="false"')); }
+
+// 6. Wake word ("Hey JARVIS"): foreground microphone service, sherpa-onnx KWS, extra permissions. Idempotent.
 mf = fs.readFileSync(manifestPath, 'utf8');
 if (!mf.includes('JarvisWakeService')) {
   const wakePerms = ['FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_MICROPHONE', 'POST_NOTIFICATIONS', 'ACCESS_COARSE_LOCATION']
@@ -97,12 +104,21 @@ if (!mf.includes('JarvisWakeService')) {
 }
 const gradlePath = path.join(android, 'app/build.gradle');
 let gradle = fs.readFileSync(gradlePath, 'utf8');
-if (!gradle.includes('porcupine-android')) {
-  gradle = gradle.replace(/dependencies\s*\{/, "dependencies {\n    implementation 'ai.picovoice:porcupine-android:4.0.2'");
-  if (!gradle.includes('porcupine-android')) { console.error('Could not add the Porcupine dependency to app/build.gradle; add implementation \'ai.picovoice:porcupine-android:4.0.2\' yourself.'); process.exit(1); }
+const nativeDeps = [
+  "    implementation 'com.alphacephei:vosk-android:0.3.75'",
+];
+gradle = gradle.replace(/\s*implementation ['"]ai\.picovoice:porcupine-android:[^'"]+['"]\s*\n?/g, '\n');
+const missingDeps = nativeDeps.filter(dep => !gradle.includes(dep.match(/'([^']+)'/)[1]));
+if (missingDeps.length) {
+  gradle = gradle.replace(/dependencies\s*\{/, `dependencies {\n${missingDeps.join('\n')}`);
+  if (!gradle.includes('vosk-android')) {
+    console.error('Could not add the Vosk dependency to app/build.gradle.'); process.exit(1);
+  }
   fs.writeFileSync(gradlePath, gradle);
 }
-// Optional custom wake-word model: put hey-jarvis.ppn in android-bridge/assets/ and it is bundled automatically.
+// Copy offline speech and sherpa-onnx KWS models into APK assets.
 const assetsSrc = path.join(bridge, 'assets');
 if (fs.existsSync(assetsSrc)) fs.cpSync(assetsSrc, path.join(main, 'assets'), { recursive: true, force: true });
+const jniSrc = path.join(bridge, 'jniLibs');
+if (fs.existsSync(jniSrc)) fs.cpSync(jniSrc, path.join(main, 'jniLibs'), { recursive: true, force: true });
 console.log(`Jarvis phone bridge installed for package ${pkg}.`);

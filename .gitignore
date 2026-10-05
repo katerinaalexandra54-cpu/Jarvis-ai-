@@ -3,3 +3,11 @@ dist
 .env
 .DS_Store
 *.log
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.p12
+*.pem
+keystore.properties
+local.properties

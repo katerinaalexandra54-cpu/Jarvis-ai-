@@ -2,6 +2,7 @@ package com.you.jarvis;
 
 import android.Manifest;
 import android.accessibilityservice.AccessibilityService;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.content.ActivityNotFoundException;
 import android.content.ContentResolver;
 import android.content.ContentValues;
@@ -508,6 +509,83 @@ public class JarvisPhonePlugin extends Plugin {
             default: call.reject("Unknown action."); return;
         }
         if (svc.performGlobalAction(code)) call.resolve(); else call.reject("Android refused that action.");
+    }
+
+    @PluginMethod
+    public void scroll(PluginCall call) {
+        JarvisAccessibilityService svc = JarvisAccessibilityService.instance;
+        if (svc == null) { call.reject("Phone control is not enabled. Please enable JARVIS Phone Control in Android Settings."); return; }
+        String direction = call.getString("direction", "down");
+        int count = Math.max(1, Math.min(5, call.getInt("count", 1)));
+        for (int i = 0; i < count; i++) if (!svc.scroll(direction)) { call.reject("The current app did not accept a scroll action."); return; }
+        JSObject o = new JSObject(); o.put("direction", direction); o.put("count", count); call.resolve(o);
+    }
+
+    @PluginMethod
+    public void clickVisibleText(PluginCall call) {
+        JarvisAccessibilityService svc = JarvisAccessibilityService.instance;
+        if (svc == null) { call.reject("Phone control is not enabled. Please enable JARVIS Phone Control in Android Settings."); return; }
+        String text = call.getString("text", "").trim();
+        if (text.isEmpty()) { call.reject("Tell me which visible control to press."); return; }
+        if (svc.clickText(text)) { JSObject o = new JSObject(); o.put("text", text); call.resolve(o); }
+        else call.reject("I could not find a clickable visible control named " + text + ".");
+    }
+
+    @PluginMethod
+    public void typeVisibleText(PluginCall call) {
+        JarvisAccessibilityService svc = JarvisAccessibilityService.instance;
+        if (svc == null) { call.reject("Phone control is not enabled. Please enable JARVIS Phone Control in Android Settings."); return; }
+        String text = call.getString("text", "");
+        if (text.isEmpty()) { call.reject("There is no text to enter."); return; }
+        if (svc.typeText(text)) { JSObject o = new JSObject(); o.put("typed", true); call.resolve(o); }
+        else call.reject("Android did not accept text entry. Password and secure fields are never automated.");
+    }
+
+    private void collectMessagingNodes(AccessibilityNodeInfo node, JSArray out, int[] budget) {
+        if (node == null || budget[0] <= 0) return;
+        if (node.isVisibleToUser() && !node.isPassword()) {
+            CharSequence text = node.getText();
+            CharSequence desc = node.getContentDescription();
+            if ((text != null && text.length() > 0) || (desc != null && desc.length() > 0)) {
+                JSObject item = new JSObject();
+                item.put("text", text == null ? "" : String.valueOf(text).substring(0, Math.min(300, text.length())));
+                item.put("description", desc == null ? "" : String.valueOf(desc).substring(0, Math.min(300, desc.length())));
+                item.put("className", String.valueOf(node.getClassName()));
+                item.put("resourceId", node.getViewIdResourceName() == null ? "" : node.getViewIdResourceName());
+                item.put("clickable", node.isClickable());
+                item.put("scrollable", node.isScrollable());
+                out.put(item); budget[0]--;
+            }
+        }
+        for (int i = 0; i < node.getChildCount() && budget[0] > 0; i++) collectMessagingNodes(node.getChild(i), out, budget);
+    }
+
+    @PluginMethod
+    public void messagingSnapshot(PluginCall call) {
+        JarvisAccessibilityService svc = JarvisAccessibilityService.instance;
+        if (svc == null) { call.reject("Phone control is not enabled. Please enable JARVIS Phone Control in Android Settings."); return; }
+        AccessibilityNodeInfo root = svc.activeRoot();
+        if (root == null) { call.reject("Android is not exposing the current app's controls."); return; }
+        JSObject result = new JSObject();
+        result.put("packageName", root.getPackageName() == null ? "" : root.getPackageName());
+        JSArray nodes = new JSArray(); collectMessagingNodes(root, nodes, new int[] { 80 });
+        result.put("nodes", nodes);
+        result.put("note", "Only visible non-password accessibility nodes from the explicitly requested screen are included.");
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void messagingReply(PluginCall call) {
+        JarvisAccessibilityService svc = JarvisAccessibilityService.instance;
+        if (svc == null) { call.reject("Phone control is not enabled. Please enable JARVIS Phone Control in Android Settings."); return; }
+        String text = call.getString("text", "");
+        if (text.trim().isEmpty()) { call.reject("There is no reply text."); return; }
+        JSObject result = new JSObject();
+        boolean typed = svc.typeText(text);
+        boolean sent = typed && svc.clickSendControl();
+        result.put("typed", typed); result.put("sent", sent);
+        if (!sent) result.put("reason", typed ? "The text was entered, but Android did not expose a visible Send control." : "Android did not expose a safe message input.");
+        call.resolve(result);
     }
 
     // ---------- contacts, calls, texts ----------

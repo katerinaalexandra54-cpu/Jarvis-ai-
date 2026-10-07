@@ -64,7 +64,6 @@ public class JarvisWakeService extends Service {
     private static final int ID_ALERT = 4208;
     private static final int SAMPLE_RATE = 16000;
     private static final String MODEL_ASSET = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01";
-    private static final String KEYWORD = "▁HE Y ▁JA R VI S :1.0 #0.55";
     private static final long MIN_TRIGGER_INTERVAL_MS = 3000L;
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -77,6 +76,7 @@ public class JarvisWakeService extends Service {
     private volatile boolean acked = false;
     private volatile boolean listening = false;
     private long lastTriggerAt = 0L;
+    private final Object engineLock = new Object();
 
     @Override public IBinder onBind(Intent intent) { return null; }
     public boolean isListening() { return listening; }
@@ -84,15 +84,20 @@ public class JarvisWakeService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) { stopSelf(); return START_NOT_STICKY; }
-        showForeground();
         instance = this;
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            fail("Microphone permission is needed for the wake word."); return START_NOT_STICKY;
+        try {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                fail("Microphone permission is needed for the wake word."); return START_NOT_STICKY;
+            }
+            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                fail("Notifications permission is needed while JARVIS is listening."); return START_NOT_STICKY;
+            }
+            // Android 12+/14 can throw SecurityException here. Keep it inside the recovery boundary.
+            showForeground();
+            startEngine();
+        } catch (Throwable t) {
+            fail(startupError("Android could not start the wake service", t));
         }
-        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            fail("Notifications permission is needed while JARVIS is listening."); return START_NOT_STICKY;
-        }
-        startEngine();
         // Deliberately not sticky: Android restricts restarting microphone services after process death.
         return START_NOT_STICKY;
     }
@@ -124,6 +129,7 @@ public class JarvisWakeService extends Service {
             try {
                 releaseEngine();
                 ensureModelFiles();
+                loadNativeLibraries();
                 File dir = modelDir();
                 OnlineTransducerModelConfig transducer = OnlineTransducerModelConfig.builder()
                         .setEncoder(new File(dir, "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx").getAbsolutePath())
@@ -147,20 +153,37 @@ public class JarvisWakeService extends Service {
                         .setNumTrailingBlanks(2)
                         .build();
                 spotter = new KeywordSpotter(config);
-                stream = spotter.createStream(KEYWORD);
+                // Use the validated bundled keyword file. Passing a second tokenized
+                // keyword string would duplicate the graph and can fail on older JNI builds.
+                stream = spotter.createStream();
                 if (stream.getPtr() == 0L) throw new IOException("Could not create the Hey JARVIS keyword stream.");
                 startAudio();
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 releaseEngine();
-                fail("Sherpa-onnx wake word could not start: " + (e.getMessage() == null ? "unknown error" : e.getMessage()));
+                fail(startupError("Sherpa-onnx wake word could not start", e));
             }
         });
+    }
+
+    private void loadNativeLibraries() {
+        // Load transitive dependencies explicitly for older Android linker namespaces.
+        // Repeated System.loadLibrary calls are safe because Android caches loaded SONAMEs.
+        System.loadLibrary("onnxruntime");
+        System.loadLibrary("sherpa-onnx-c-api");
+        System.loadLibrary("sherpa-onnx-cxx-api");
+        System.loadLibrary("sherpa-onnx-jni");
+    }
+
+    private String startupError(String prefix, Throwable t) {
+        String detail = t == null ? "unknown error" : t.getMessage();
+        if (detail == null || detail.trim().isEmpty()) detail = t == null ? "unknown error" : t.getClass().getSimpleName();
+        return prefix + ": " + detail;
     }
 
     private void startAudio() throws IOException {
         int min = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         if (min <= 0) throw new IOException("This device cannot provide a 16 kHz microphone stream.");
-        recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
+        recorder = new AudioRecord(MediaRecorder.AudioSource.MIC, SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(min * 2, 4096));
         if (recorder.getState() != AudioRecord.STATE_INITIALIZED) throw new IOException("Android could not initialize the microphone.");
         recorder.startRecording();
@@ -211,13 +234,20 @@ public class JarvisWakeService extends Service {
     }
 
     private void releaseEngine() {
-        listening = false;
-        stopAudio = true;
-        releaseAudioOnly();
-        OnlineStream s = stream; stream = null;
-        if (s != null) try { s.release(); } catch (Exception ignored) { }
-        KeywordSpotter k = spotter; spotter = null;
-        if (k != null) try { k.release(); } catch (Exception ignored) { }
+        synchronized (engineLock) {
+            listening = false;
+            stopAudio = true;
+            releaseAudioOnly();
+            Thread oldThread = audioThread;
+            audioThread = null;
+            if (oldThread != null && oldThread != Thread.currentThread()) {
+                try { oldThread.join(500L); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+            OnlineStream s = stream; stream = null;
+            if (s != null) try { s.release(); } catch (Throwable ignored) { }
+            KeywordSpotter k = spotter; spotter = null;
+            if (k != null) try { k.release(); } catch (Throwable ignored) { }
+        }
     }
 
     private void onDetected() {
@@ -237,7 +267,13 @@ public class JarvisWakeService extends Service {
     public void resume() { if (!isFinishing()) startEngine(); }
     private boolean isFinishing() { return stopAudio && instance == null; }
 
-    private void fail(String message) { Listener l = listener; if (l != null) l.onError(message); stopSelf(); }
+    private void fail(String message) {
+        listening = false;
+        try { stopForeground(true); } catch (Throwable ignored) { }
+        Listener l = listener;
+        if (l != null) main.post(() -> l.onError(message));
+        stopSelf();
+    }
 
     private PendingIntent openApp(boolean wake) {
         Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());

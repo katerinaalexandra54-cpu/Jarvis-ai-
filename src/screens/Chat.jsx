@@ -22,7 +22,7 @@ export default function Chat() {
             <div className={`bubble ${m.small ? 'small' : ''}`}>{m.text}</div>
             {!m.small && <time>{clock(m.ts)}</time>}
             {m.confirm && a.pending && m === a.messages[a.messages.length - 1] && (
-              <div className="confirm"><button className="btn sm" onClick={() => a.confirm(true)}>{a.pending.action.type === 'call' ? 'Call' : 'Send'}</button><button className="btn sm glass-btn" onClick={() => a.confirm(false)}>Cancel</button></div>
+              <div className="confirm"><button className="btn sm" onClick={() => a.confirm(true)}>{a.pending.action.type === 'call' ? 'Call' : a.pending.action.type === 'message' ? 'Prepare' : 'Send'}</button><button className="btn sm glass-btn" onClick={() => a.confirm(false)}>Cancel</button></div>
             )}
           </div>
         ))}

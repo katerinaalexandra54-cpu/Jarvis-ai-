@@ -39,8 +39,8 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
 
   // Called by the call/text tools. Resolves true/false when the user answers yes/no (or taps a button).
   const confirmAction = useCallback(({ kind, label, body }) => new Promise(resolve => {
-    const ask = kind === 'call' ? `Call ${label}?` : `Send to ${label}: "${body}". Should I send it?`;
-    const item = { action: { type: kind === 'call' ? 'call' : 'sendSms' }, label, resolve };
+    const ask = kind === 'call' ? `Call ${label}?` : kind === 'message' ? `Prepare this message for ${label}: "${body}"? You will still tap Send in the app.` : kind === 'generic' ? `Allow JARVIS to ${label}?` : `Send to ${label}: "${body}". Should I send it?`;
+    const item = { action: { type: kind === 'call' ? 'call' : kind === 'message' ? 'message' : kind === 'generic' ? 'generic' : 'sendSms' }, label, resolve };
     setPending(item);
     push({ from: 'jarvis', text: ask, confirm: true });
     if (turn.current.speakIt) speak(ask, settings.lang);

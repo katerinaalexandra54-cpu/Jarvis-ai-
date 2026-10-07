@@ -49,6 +49,16 @@ export const TOOLS = [
     async run({ name }, d) { const r = await d.phone.openApp(name); if (d.settleMs) await d.sleep(d.settleMs); return { app: r.app }; },
   },
   {
+    name: 'app.search', kind: 'action',
+    description: 'Open an app search for a query. Currently supports YouTube search through its public Android/web URL.',
+    parameters: { type: 'object', properties: { app: { type: 'string', enum: ['youtube'] }, query: { type: 'string' } }, required: ['app', 'query'] },
+    async run({ app, query }, d) {
+      const url = `https://www.youtube.com/results?search_query=${enc(query)}`;
+      await d.run({ type: 'openUrl', url });
+      return { app, query, opened: true };
+    },
+  },
+  {
     name: 'device.get_battery', kind: 'info',
     description: 'Get the battery percentage and whether the phone is charging.',
     parameters: { type: 'object', properties: {} },
@@ -118,6 +128,44 @@ export const TOOLS = [
     async run({ count = 3, from = '' }, d) { const r = await d.run({ type: 'readSms', count, from }); const messages = r.sms || []; d.onSms?.(messages); return { messages }; },
   },
   {
+    name: 'message.compose', kind: 'action', sensitive: true,
+    description: 'Prepare a WhatsApp or Telegram message. Resolve the contact, ask for confirmation, open the supported composer/deep link, and clearly tell the user they must tap Send because Android/app policies do not permit JARVIS to claim direct delivery.',
+    parameters: { type: 'object', properties: { app: { type: 'string', enum: ['whatsapp', 'telegram'] }, to: { type: 'string' }, body: { type: 'string' } }, required: ['app', 'to', 'body'] },
+    async run({ app, to, body }, d) {
+      const target = await d.resolveTarget(to);
+      if (!(await d.confirm({ kind: 'message', label: `${target.name} on ${app}`, body }))) return { success: false, cancelled: true, error: 'The user declined, so no message composer was opened.' };
+      const encoded = enc(body);
+      const url = app === 'whatsapp'
+        ? `https://wa.me/${target.number.replace(/\D/g, '')}?text=${encoded}`
+        : `https://t.me/+${target.number.replace(/\D/g, '')}?text=${encoded}`;
+      await d.run({ type: 'openUrl', url });
+      return { preparedFor: target.name, app, requiresUserTap: true, note: 'The composer was opened; tap Send in the target app. JARVIS did not claim delivery.' };
+    },
+  },
+  {
+    name: 'message.read_current', kind: 'info',
+    description: 'Read the visible, non-password accessibility nodes from the currently active messaging or social app, only when the user explicitly asks. Use the package name and visible labels/messages to identify what Android exposes.',
+    parameters: { type: 'object', properties: {} },
+    async run(_a, d) { const r = await d.run({ type: 'messagingSnapshot' }); return { appPackage: r.packageName, visibleNodes: r.nodes, note: r.note }; },
+  },
+  {
+    name: 'message.scroll_read', kind: 'action',
+    description: 'Scroll the currently active messaging/social app in the requested direction and then read the newly visible non-password accessibility nodes.',
+    parameters: { type: 'object', properties: { direction: { type: 'string', enum: ['up', 'down'] }, count: { type: 'integer', minimum: 1, maximum: 3 } }, required: ['direction'] },
+    async run({ direction, count = 1 }, d) { await d.run({ type: 'scroll', direction, count }); const r = await d.run({ type: 'messagingSnapshot' }); return { appPackage: r.packageName, visibleNodes: r.nodes, note: r.note }; },
+  },
+  {
+    name: 'message.reply_current', kind: 'action', sensitive: true,
+    description: 'Reply in the currently active messaging app. Ask for confirmation first, enter only the user-provided message into a safe field, click a visible Send control if Android exposes one, and never claim success if the native result sent=false.',
+    parameters: { type: 'object', properties: { body: { type: 'string' } }, required: ['body'] },
+    async run({ body }, d) {
+      if (!(await d.confirm({ kind: 'message', label: 'the currently active conversation', body }))) return { success: false, cancelled: true, error: 'The user declined, so no reply was sent.' };
+      const r = await d.run({ type: 'messagingReply', text: body });
+      if (!r.sent) return { success: false, typed: !!r.typed, error: r.reason || 'Android did not verify that the reply was sent.' };
+      return { sent: true, verified: true };
+    },
+  },
+  {
     name: 'weather.get', kind: 'info',
     description: 'Get the current weather and a short forecast for a named place, or for the phone\'s location if no place is given.',
     parameters: { type: 'object', properties: {
@@ -179,6 +227,27 @@ export const TOOLS = [
     description: 'Press a system button or open a system panel (needs the Jarvis accessibility service).',
     parameters: { type: 'object', properties: { action: { type: 'string', enum: ['screenshot', 'home', 'back', 'recents', 'notifications', 'quickSettings', 'lock'] } }, required: ['action'] },
     async run({ action }, d) { await d.run({ type: 'globalAction', action }); return { action }; },
+  },
+  {
+    name: 'accessibility.scroll', kind: 'action',
+    description: 'Scroll the currently visible app up or down a requested number of times. Requires the user-enabled JARVIS Phone Control accessibility service.',
+    parameters: { type: 'object', properties: { direction: { type: 'string', enum: ['up', 'down'] }, count: { type: 'integer', minimum: 1, maximum: 5 } }, required: ['direction'] },
+    async run({ direction, count = 1 }, d) { await d.run({ type: 'scroll', direction, count }); return { direction, count }; },
+  },
+  {
+    name: 'accessibility.click', kind: 'action', sensitive: true,
+    description: 'Click one visible, matching control in the current app after explicit user confirmation. Never use this for passwords, PINs, OTPs, purchases, deleting data, or sending messages without confirmation.',
+    parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    async run({ text }, d) {
+      if (!(await d.confirm({ kind: 'generic', label: `the visible control "${text}"`, body: 'Proceed?' }))) return { success: false, cancelled: true, error: 'The user declined the visible-control action.' };
+      await d.run({ type: 'clickVisibleText', text }); return { clicked: text };
+    },
+  },
+  {
+    name: 'accessibility.type', kind: 'action',
+    description: 'Enter user-provided text into the currently focused non-password field. Passwords, PINs, OTPs, and secure fields are refused by the Android layer.',
+    parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    async run({ text }, d) { await d.run({ type: 'typeVisibleText', text }); return { typed: true }; },
   },
   {
     name: 'settings.open', kind: 'action',

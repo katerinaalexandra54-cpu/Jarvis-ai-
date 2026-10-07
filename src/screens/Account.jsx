@@ -106,12 +106,12 @@ export function SettingsPage({ page }) {
 
         {page === 'phone' && <>
           {!isNative() && <p className="notice glass">Phone control works in the Android app. In a browser you can still chat and use the tools.</p>}
-          <p className="muted lead-s">Allow what JARVIS needs to act like the owner of your phone.</p>
+          <p className="muted lead-s">Allow only the phone capabilities you want JARVIS to use. Accessibility is optional and must be enabled by you in Android Settings.</p>
           <div className="glass thick results">{perms.map(([k, t, s]) => (
             <div key={k} className="perm"><span className="row-t"><strong>{t}</strong><small>{s}</small></span><b className={st?.[k] ? 'ok' : 'off'}>{st?.[k] ? 'On' : 'Off'}</b></div>))}</div>
           <button className="btn" disabled={!isNative()} onClick={() => requestPermissions().then(setSt).catch(e => notify(e.message))}>Allow permissions</button>
           <button className="btn glass-btn" disabled={!isNative()} onClick={() => openAccessibility().catch(e => notify(e.message))}>Turn on Accessibility</button>
-          <p className="muted small-note">In Accessibility, open Installed apps, choose Jarvis and switch it on. Try saying: "Set an alarm for 7 AM", "Take a screenshot", "Open YouTube", "Read my messages", "Text Mom I'm on my way".</p></>}
+          <p className="muted small-note">JARVIS Phone Control is used only for an explicit command such as Home, Back, reading a visible conversation, replying, scrolling, or pressing a named visible control. It does not read passwords, PINs, OTPs, or secure fields, cannot unlock the phone, and never silently monitors your screen. Messaging support is generic: it works only where the active app exposes compatible accessibility controls, not every app. Replies always require confirmation, and JARVIS reports failure unless Android verifies the visible Send action. In Accessibility, open Installed apps, choose Jarvis and switch it on.</p></>}
       </Scroll>
     </>
   );

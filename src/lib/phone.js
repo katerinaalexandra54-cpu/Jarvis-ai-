@@ -88,6 +88,11 @@ export async function runAction(a) {
     case 'call': await Native.placeCall({ number: a.number }); return {};
     case 'sendSms': await Native.sendSms({ number: a.number, body: a.body }); return {};
     case 'readSms': { const r = await Native.readSms({ count: a.count || 3, from: a.from || '' }); return { sms: r.messages }; }
+    case 'scroll': return Native.scroll({ direction: a.direction || 'down', count: a.count || 1 });
+    case 'clickVisibleText': return Native.clickVisibleText({ text: a.text || '' });
+    case 'typeVisibleText': return Native.typeVisibleText({ text: a.text || '' });
+    case 'messagingSnapshot': return Native.messagingSnapshot();
+    case 'messagingReply': return Native.messagingReply({ text: a.text || '' });
     default: throw new Error("I don't know how to do that yet.");
   }
 }

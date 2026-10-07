@@ -38,6 +38,52 @@ test('app open: app.open called with the app name', async () => {
   assert.equal(out.route, 'action');
 });
 
+test('app search: YouTube search opens a real supported URL', async () => {
+  const deps = fakeDeps();
+  const r = await executeTool('app_search', { app: 'youtube', query: 'Burna Boy' }, deps);
+  assert.equal(r.success, true);
+  assert.deepEqual(deps.log, [['run', 'openUrl']]);
+});
+
+test('message composer: confirmation is required and delivery is not claimed', async () => {
+  const deps = fakeDeps({ confirm: async () => true });
+  const r = await executeTool('message_compose', { app: 'whatsapp', to: 'Mom', body: 'I am outside' }, deps);
+  assert.equal(r.success, true);
+  assert.equal(r.requiresUserTap, true);
+  assert.match(r.note, /tap Send/i);
+  assert.deepEqual(deps.log, [['run', 'openUrl']]);
+});
+
+test('message composer: declined confirmation opens nothing', async () => {
+  const deps = fakeDeps({ confirm: async () => false });
+  const r = await executeTool('message_compose', { app: 'telegram', to: 'Mom', body: 'Hello' }, deps);
+  assert.equal(r.cancelled, true);
+  assert.equal(deps.log.length, 0);
+});
+
+test('generic messaging reply requires confirmation and native send verification', async () => {
+  const deps = fakeDeps({ run: async a => { deps.log.push(['run', a.type]); return { sent: a.type === 'messagingReply' }; } });
+  const r = await executeTool('message_reply_current', { body: 'I will call later.' }, deps);
+  assert.equal(r.success, true);
+  assert.equal(r.verified, true);
+  assert.ok(deps.log.some(x => x[1] === 'messagingReply'));
+});
+
+test('generic messaging reply reports partial or failed native controls honestly', async () => {
+  const deps = fakeDeps({ run: async a => a.type === 'messagingReply' ? { sent: false, typed: true, reason: 'No Send control' } : {} });
+  const r = await executeTool('message_reply_current', { body: 'Hello' }, deps);
+  assert.equal(r.success, false);
+  assert.equal(r.typed, true);
+  assert.match(r.error, /No Send control/);
+});
+
+test('accessibility actions route through the native action adapter', async () => {
+  const deps = fakeDeps();
+  assert.equal((await executeTool('accessibility_scroll', { direction: 'down', count: 2 }, deps)).success, true);
+  assert.equal((await executeTool('accessibility_type', { text: 'hello' }, deps)).success, true);
+  assert.deepEqual(deps.log.map(x => x[1]), ['scroll', 'typeVisibleText']);
+});
+
 // ---- #4: battery query ----
 test('battery: read-only tool, data reaches the model, route=information', async () => {
   const { out, provider } = await turn({ userText: 'How much battery do I have?', script: [tools(call('device_get_battery')), say('Battery is at 62 percent and charging.')] });

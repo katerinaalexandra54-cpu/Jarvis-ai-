@@ -93,6 +93,7 @@ export async function runAction(a) {
     case 'typeVisibleText': return Native.typeVisibleText({ text: a.text || '' });
     case 'messagingSnapshot': return Native.messagingSnapshot();
     case 'messagingReply': return Native.messagingReply({ text: a.text || '' });
+    case 'notificationPreview': return Native.captureNotificationPreview();
     default: throw new Error("I don't know how to do that yet.");
   }
 }
@@ -131,6 +132,10 @@ export const wake = {
     const h = await Native.addListener(event, cb);
     return () => h.remove();
   },
+};
+export const notificationAccess = {
+  openSettings: () => (isNative() ? Native.openNotificationAccess() : Promise.reject(new Error('Notification access works in the Android app.'))),
+  preview: () => (isNative() ? Native.captureNotificationPreview() : Promise.reject(new Error('Notification access works in the Android app.'))),
 };
 
 export async function saveImage(dataUrl, name = 'jarvis-image') {

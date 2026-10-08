@@ -70,3 +70,22 @@ test('wake startup guards Android and native failures instead of crashing the ap
   assert.match(service, /oldThread\.join\(500L\)/);
   assert.match(service, /stopForeground\(true\)/);
 });
+
+test('native packaging is reproducibly verified and Vosk fallback remains available', () => {
+  const service = read('android-bridge/java/JarvisWakeService.java');
+  const setup = read('scripts/setup-android.mjs');
+  const verifier = read('scripts/verify-android-native.mjs');
+  const manifest = read('android/app/src/main/AndroidManifest.xml');
+  assert.match(service, /startVoskFallback/);
+  assert.match(service, /JarvisVoskModel\.open/);
+  assert.match(service, /constrained Vosk wake fallback/);
+  assert.match(read('android-bridge/java/JarvisVoskModel.java'), /\.staging/);
+  assert.match(read('android-bridge/java/JarvisVoskModel.java'), /final\.mdl/);
+  assert.match(read('android-bridge/java/JarvisVoskModel.java'), /Failed to create Vosk model at/);
+  assert.match(read('android-bridge/java/JarvisPhonePlugin.java'), /Thread\.sleep\(200\)/);
+  assert.match(setup, /single source of truth/);
+  assert.match(verifier, /7f/);
+  assert.match(verifier, /arm64-v8a/);
+  assert.match(manifest, /JarvisNotificationListenerService/);
+  assert.equal(read('android/app/build.gradle').match(/applicationId "com\.you\.jarvis"/)?.[0], 'applicationId "com.you.jarvis"');
+});

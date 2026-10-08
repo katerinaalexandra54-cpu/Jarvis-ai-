@@ -72,7 +72,6 @@ public class JarvisPhonePlugin extends Plugin {
     private boolean ttsReady = false;
     private String queuedSpeech = null;
     private static final int VOSK_SAMPLE_RATE = 16000;
-    private static final String VOSK_MODEL_ASSET = "vosk-model-small-en-us-0.15";
     private Model voskModel;
     private AudioRecord offlineRecorder;
     private Thread offlineThread;
@@ -129,6 +128,7 @@ public class JarvisPhonePlugin extends Plugin {
         o.put("location", has(Manifest.permission.ACCESS_COARSE_LOCATION));
         o.put("notifications", (Build.VERSION.SDK_INT < 33 || has(Manifest.permission.POST_NOTIFICATIONS))
                 && NotificationManagerCompat.from(getContext()).areNotificationsEnabled());
+        o.put("notificationAccess", NotificationManagerCompat.getEnabledListenerPackages(getContext()).contains(getContext().getPackageName()));
         JarvisWakeService w = JarvisWakeService.instance;
         o.put("wakeRunning", w != null && w.isListening());
         return o;
@@ -150,6 +150,30 @@ public class JarvisPhonePlugin extends Plugin {
     @PermissionCallback
     private void permissionsDone(PluginCall call) {
         call.resolve(statusObject());
+    }
+
+    @PluginMethod
+    public void openNotificationAccess(PluginCall call) {
+        try { launch(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")); call.resolve(); }
+        catch (Exception e) { call.reject("Android could not open notification access settings."); }
+    }
+
+    @PluginMethod
+    public void captureNotificationPreview(PluginCall call) {
+        if (!NotificationManagerCompat.getEnabledListenerPackages(getContext()).contains(getContext().getPackageName())) {
+            call.reject("Notification access is not enabled. Open Android notification access settings first."); return;
+        }
+        JarvisNotificationListenerService.setCaptureEnabled(true);
+        JarvisNotificationListenerService.readLatestExplicit();
+        android.content.ContentValues values = JarvisNotificationListenerService.latest();
+        JSObject o = new JSObject();
+        o.put("packageName", values.getAsString("packageName"));
+        o.put("appLabel", values.getAsString("appLabel"));
+        o.put("title", values.getAsString("title"));
+        o.put("text", values.getAsString("text"));
+        o.put("timestamp", values.getAsLong("timestamp"));
+        JarvisNotificationListenerService.setCaptureEnabled(false);
+        call.resolve(o);
     }
 
     @PluginMethod
@@ -239,11 +263,11 @@ public class JarvisPhonePlugin extends Plugin {
 
     private synchronized Model getVoskModel() throws IOException {
         if (voskModel != null) return voskModel;
-        File modelDir = new File(getContext().getFilesDir(), VOSK_MODEL_ASSET);
-        File marker = new File(modelDir, "am/final.mdl");
-        if (!marker.exists()) copyAssetTree(VOSK_MODEL_ASSET, modelDir);
-        if (!marker.exists()) throw new IOException("The bundled Vosk model is unavailable.");
-        voskModel = new Model(modelDir.getAbsolutePath());
+        try {
+            voskModel = JarvisVoskModel.open(getContext());
+        } catch (IOException error) {
+            throw new IOException(error.getMessage() + " [" + JarvisVoskModel.describe(getContext()) + "]", error);
+        }
         return voskModel;
     }
 
@@ -564,14 +588,23 @@ public class JarvisPhonePlugin extends Plugin {
     public void messagingSnapshot(PluginCall call) {
         JarvisAccessibilityService svc = JarvisAccessibilityService.instance;
         if (svc == null) { call.reject("Phone control is not enabled. Please enable JARVIS Phone Control in Android Settings."); return; }
-        AccessibilityNodeInfo root = svc.activeRoot();
-        if (root == null) { call.reject("Android is not exposing the current app's controls."); return; }
-        JSObject result = new JSObject();
-        result.put("packageName", root.getPackageName() == null ? "" : root.getPackageName());
-        JSArray nodes = new JSArray(); collectMessagingNodes(root, nodes, new int[] { 80 });
-        result.put("nodes", nodes);
-        result.put("note", "Only visible non-password accessibility nodes from the explicitly requested screen are included.");
-        call.resolve(result);
+        new Thread(() -> {
+            AccessibilityNodeInfo root = null;
+            // Opening an app and delivering its accessibility tree is asynchronous,
+            // especially on Android 9. Wait briefly instead of racing the UI.
+            for (int i = 0; i < 15 && root == null; i++) {
+                root = svc.activeRoot();
+                if (root == null) try { Thread.sleep(200); } catch (InterruptedException ignored) { break; }
+            }
+            if (root == null) { call.reject("Android accessibility is enabled, but the current app exposed no readable window. Keep the target app open and try again."); return; }
+            JSObject result = new JSObject();
+            result.put("packageName", root.getPackageName() == null ? "" : root.getPackageName());
+            JSArray nodes = new JSArray(); collectMessagingNodes(root, nodes, new int[] { 120 });
+            result.put("nodes", nodes);
+            result.put("nodeCount", nodes.length());
+            result.put("note", "Only visible non-password accessibility nodes from the explicitly requested screen are included.");
+            call.resolve(result);
+        }, "jarvis-accessibility-snapshot").start();
     }
 
     @PluginMethod

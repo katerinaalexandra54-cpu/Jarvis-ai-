@@ -88,6 +88,22 @@ if (!mf.includes('JarvisAccessibilityService')) {
   fs.writeFileSync(manifestPath, mf);
 }
 
+// Optional notification access: Android still requires the user to enable it
+// manually in Settings. The service captures no content until JARVIS opts in.
+mf = fs.readFileSync(manifestPath, 'utf8');
+if (!mf.includes('JarvisNotificationListenerService')) {
+  const notificationService = `        <service
+            android:name=".JarvisNotificationListenerService"
+            android:label="JARVIS message previews"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
+        </service>
+`;
+  mf = mf.replace('</application>', notificationService + '    </application>');
+  fs.writeFileSync(manifestPath, mf);
+}
+
 // 5b. Do not let Android auto-backup copy app data (it contains the device token and chat history) to the cloud.
 mf = fs.readFileSync(manifestPath, 'utf8');
 if (mf.includes('android:allowBackup="true"')) { fs.writeFileSync(manifestPath, mf.replace('android:allowBackup="true"', 'android:allowBackup="false"')); }
@@ -120,5 +136,11 @@ if (missingDeps.length) {
 const assetsSrc = path.join(bridge, 'assets');
 if (fs.existsSync(assetsSrc)) fs.cpSync(assetsSrc, path.join(main, 'assets'), { recursive: true, force: true });
 const jniSrc = path.join(bridge, 'jniLibs');
-if (fs.existsSync(jniSrc)) fs.cpSync(jniSrc, path.join(main, 'jniLibs'), { recursive: true, force: true });
+if (fs.existsSync(jniSrc)) {
+  const jniDest = path.join(main, 'jniLibs');
+  // The bridge directory is the single source of truth. Remove stale ABI
+  // files first so a previous build can never override a corrected binary.
+  fs.rmSync(jniDest, { recursive: true, force: true });
+  fs.cpSync(jniSrc, jniDest, { recursive: true, force: true });
+}
 console.log(`Jarvis phone bridge installed for package ${pkg}.`);

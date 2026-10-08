@@ -31,6 +31,8 @@ jobs:
       - run: test -d android || npx cap add android
       - run: node scripts/setup-android.mjs
       - run: npx cap sync android
+      - name: Verify Sherpa native libraries before build
+        run: node scripts/verify-android-native.mjs
       - name: Verify release signing secrets are configured
         shell: bash
         env:
@@ -63,6 +65,10 @@ jobs:
       - name: Build debug and unsigned release variants
         run: chmod +x gradlew && ./gradlew --no-daemon assembleDebug assembleRelease
         working-directory: android
+      - name: Verify native libraries packaged in both APKs
+        run: |
+          node scripts/verify-android-native.mjs android/app/build/outputs/apk/debug/app-debug.apk
+          node scripts/verify-android-native.mjs android/app/build/outputs/apk/release/app-release-unsigned.apk
       - name: Sign and verify the release APK with the permanent keystore
         shell: bash
         working-directory: android
@@ -117,6 +123,9 @@ jobs:
             echo "::error::The release APK application ID is not com.you.jarvis."
             exit 1
           fi
+          cd ..
+          node scripts/verify-android-native.mjs android/app/build/outputs/apk/release/jarvis-release.apk
+          cd android
           rm -f "$UNSIGNED_APK"
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

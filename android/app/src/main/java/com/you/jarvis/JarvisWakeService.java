@@ -27,8 +27,10 @@ import com.k2fsa.sherpa.onnx.KeywordSpotter;
 import com.k2fsa.sherpa.onnx.KeywordSpotterConfig;
 import com.k2fsa.sherpa.onnx.KeywordSpotterResult;
 import com.k2fsa.sherpa.onnx.OnlineModelConfig;
-import com.k2fsa.sherpa.onnx.OnlineStream;
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig;
+import com.k2fsa.sherpa.onnx.OnlineStream;
+import org.vosk.Model;
+import org.vosk.Recognizer;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -68,6 +70,8 @@ public class JarvisWakeService extends Service {
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private KeywordSpotter spotter;
+    private Model voskModel;
+    private Recognizer voskRecognizer;
     private OnlineStream stream;
     private AudioRecord recorder;
     private Thread audioThread;
@@ -160,7 +164,8 @@ public class JarvisWakeService extends Service {
                 startAudio();
             } catch (Throwable e) {
                 releaseEngine();
-                fail(startupError("Sherpa-onnx wake word could not start", e));
+                if (!startVoskFallback(startupError("Sherpa-onnx unavailable; using offline Vosk wake fallback", e)))
+                    fail(startupError("Sherpa-onnx wake word could not start", e));
             }
         });
     }
@@ -174,6 +179,41 @@ public class JarvisWakeService extends Service {
         System.loadLibrary("sherpa-onnx-jni");
     }
 
+    private boolean startVoskFallback(String reason) {
+        try {
+            voskModel = JarvisVoskModel.open(this);
+            voskRecognizer = new Recognizer(voskModel, SAMPLE_RATE, "[\"hey jarvis\", \"jarvis\", \"[unk]\"]");
+            startAudio();
+            android.util.Log.w("JarvisWakeService", reason + "; running constrained Vosk wake fallback.");
+            return true;
+        } catch (Throwable fallbackError) {
+            android.util.Log.e("JarvisWakeService", "Vosk fallback failed: " + JarvisVoskModel.describe(this), fallbackError);
+            releaseEngine();
+            return false;
+        }
+    }
+    private void processVoskAudio() {
+        byte[] buffer = new byte[Math.max(4096, SAMPLE_RATE / 5 * 2)];
+        try {
+            while (!stopAudio && !paused && recorder != null && voskRecognizer != null) {
+                int n = recorder.read(buffer, 0, buffer.length);
+                if (n <= 0) continue;
+                if (voskRecognizer.acceptWaveForm(buffer, n)) {
+                    String text = voskText(voskRecognizer.getResult());
+                    if (isWakePhrase(text)) { onDetected(); return; }
+                } else if (isWakePhrase(voskText(voskRecognizer.getPartialResult()))) {
+                    onDetected(); return;
+                }
+            }
+        } catch (Exception e) {
+            if (!stopAudio && !paused) main.post(() -> fail("Offline Vosk wake fallback stopped: " + e.getMessage()));
+        }
+    }
+    private String voskText(String json) {
+        try { return new org.json.JSONObject(json).optString("text", new org.json.JSONObject(json).optString("partial", "")); }
+        catch (Exception ignored) { return ""; }
+    }
+    private boolean isWakePhrase(String text) { return text != null && text.matches("(?i).*\\bhey\\s+jarvis\\b.*|(?i).*\\bjarvis\\b.*"); }
     private String startupError(String prefix, Throwable t) {
         String detail = t == null ? "unknown error" : t.getMessage();
         if (detail == null || detail.trim().isEmpty()) detail = t == null ? "unknown error" : t.getClass().getSimpleName();
@@ -191,7 +231,9 @@ public class JarvisWakeService extends Service {
         paused = false;
         listening = true;
         final int bufferSamples = Math.max(SAMPLE_RATE / 10, min / 2);
-        audioThread = new Thread(() -> processAudio(bufferSamples), "jarvis-sherpa-kws");
+        audioThread = new Thread(() -> {
+            if (voskRecognizer != null) processVoskAudio(); else processAudio(bufferSamples);
+        }, voskRecognizer != null ? "jarvis-vosk-wake-fallback" : "jarvis-sherpa-kws");
         audioThread.start();
     }
 
@@ -247,6 +289,10 @@ public class JarvisWakeService extends Service {
             if (s != null) try { s.release(); } catch (Throwable ignored) { }
             KeywordSpotter k = spotter; spotter = null;
             if (k != null) try { k.release(); } catch (Throwable ignored) { }
+            Recognizer vr = voskRecognizer; voskRecognizer = null;
+            if (vr != null) try { vr.close(); } catch (Throwable ignored) { }
+            Model vm = voskModel; voskModel = null;
+            if (vm != null) try { vm.close(); } catch (Throwable ignored) { }
         }
     }
 

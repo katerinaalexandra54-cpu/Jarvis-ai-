@@ -14,6 +14,8 @@ import android.media.AudioRecord;
 import android.media.AudioManager;
 import android.media.MediaRecorder;
 import android.media.ToneGenerator;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -33,6 +35,7 @@ import org.vosk.Model;
 import org.vosk.Recognizer;
 
 import java.io.File;
+import java.util.Locale;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -69,6 +72,9 @@ public class JarvisWakeService extends Service {
     private static final long MIN_TRIGGER_INTERVAL_MS = 3000L;
 
     private final Handler main = new Handler(Looper.getMainLooper());
+    private TextToSpeech wakeTts;
+    private volatile boolean wakeTtsReady = false;
+
     private KeywordSpotter spotter;
     private Model voskModel;
     private Recognizer voskRecognizer;
@@ -98,6 +104,16 @@ public class JarvisWakeService extends Service {
             }
             // Android 12+/14 can throw SecurityException here. Keep it inside the recovery boundary.
             showForeground();
+            wakeTts = new TextToSpeech(this, status -> {
+                if (status == TextToSpeech.SUCCESS && wakeTts != null) {
+                    int language = wakeTts.setLanguage(Locale.forLanguageTag("en-NG"));
+                    if (language == TextToSpeech.LANG_MISSING_DATA ||
+                        language == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        wakeTts.setLanguage(Locale.US);
+                    }
+                    wakeTtsReady = true;
+                }
+            });
             startEngine();
         } catch (Throwable t) {
             fail(startupError("Android could not start the wake service", t));
@@ -296,15 +312,58 @@ public class JarvisWakeService extends Service {
         }
     }
 
+
+    private void speakWakeAcknowledgement(Runnable afterSpeech) {
+        if (wakeTts == null || !wakeTtsReady) {
+            afterSpeech.run();
+            return;
+        }
+
+        final java.util.concurrent.atomic.AtomicBoolean done =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        Runnable finish = () -> {
+            if (done.compareAndSet(false, true)) afterSpeech.run();
+        };
+
+        try {
+            String utteranceId = "jarvis_ack_" + System.nanoTime();
+            wakeTts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                @Override public void onStart(String id) { }
+                @Override public void onDone(String id) {
+                    if (utteranceId.equals(id)) main.post(finish);
+                }
+                @Override public void onError(String id) {
+                    if (utteranceId.equals(id)) main.post(finish);
+                }
+            });
+
+            int result = wakeTts.speak(
+                    "Yes?", TextToSpeech.QUEUE_FLUSH, null, utteranceId);
+            if (result == TextToSpeech.ERROR) finish();
+            main.postDelayed(finish, 2500L);
+        } catch (Throwable ignored) {
+            finish();
+        }
+    }
+
     private void onDetected() {
         if (paused) return;
         paused = true;
         acked = false;
+
         main.post(() -> {
             releaseAudioOnly();
-            try { final ToneGenerator tg = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 70); tg.startTone(ToneGenerator.TONE_PROP_BEEP, 120); main.postDelayed(tg::release, 400); } catch (Exception ignored) { }
-            Listener l = listener; if (l != null) l.onWake();
-            main.postDelayed(() -> { if (!acked) { showTapToTalk(); resume(); } }, 2000);
+            speakWakeAcknowledgement(() -> {
+                Listener l = listener;
+                if (l != null) l.onWake();
+
+                main.postDelayed(() -> {
+                    if (!acked) {
+                        showTapToTalk();
+                        resume();
+                    }
+                }, 5000L);
+            });
         });
     }
 
@@ -355,5 +414,19 @@ public class JarvisWakeService extends Service {
         ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).notify(ID_ALERT, n);
     }
 
-    @Override public void onDestroy() { releaseEngine(); instance = null; Listener l = listener; if (l != null) l.onStopped(); super.onDestroy(); }
+    @Override public void onDestroy() {
+        releaseEngine();
+        if (wakeTts != null) {
+            try {
+                wakeTts.stop();
+                wakeTts.shutdown();
+            } catch (Throwable ignored) { }
+            wakeTts = null;
+        }
+        wakeTtsReady = false;
+        instance = null;
+        Listener l = listener;
+        if (l != null) l.onStopped();
+        super.onDestroy();
+    }
 }

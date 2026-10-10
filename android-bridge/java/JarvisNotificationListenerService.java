@@ -32,7 +32,14 @@ public class JarvisNotificationListenerService extends NotificationListenerServi
         if (!captureEnabled || service == null) return;
         StatusBarNotification[] active = service.getActiveNotifications();
         if (active == null) return;
-        for (StatusBarNotification sbn : active) service.capture(sbn);
+        StatusBarNotification newest = null;
+        for (StatusBarNotification sbn : active) {
+            if (sbn != null && sbn.getNotification() != null &&
+                (newest == null || sbn.getPostTime() > newest.getPostTime())) {
+                newest = sbn;
+            }
+        }
+        if (newest != null) service.capture(newest);
     }
 
     @Override public void onListenerConnected() { instance = this; }
@@ -51,6 +58,12 @@ public class JarvisNotificationListenerService extends NotificationListenerServi
         CharSequence body = extras.getCharSequence(Notification.EXTRA_TEXT);
         synchronized (JarvisNotificationListenerService.class) {
             packageName = sbn.getPackageName() == null ? "" : sbn.getPackageName();
+            appLabel = packageName;
+            try {
+                android.content.pm.ApplicationInfo info = getPackageManager().getApplicationInfo(packageName, 0);
+                CharSequence label = getPackageManager().getApplicationLabel(info);
+                if (label != null) appLabel = String.valueOf(label);
+            } catch (Exception ignored) { }
             title = t == null ? "" : String.valueOf(t);
             text = body == null ? "" : String.valueOf(body);
             timestamp = sbn.getPostTime();

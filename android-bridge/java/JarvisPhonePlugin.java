@@ -27,6 +27,7 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
+import android.speech.tts.Voice;
 import android.telephony.SmsManager;
 import android.util.Base64;
 
@@ -109,11 +110,29 @@ public class JarvisPhonePlugin extends Plugin {
                 reportSpeechError("The selected Android voice is not available.");
                 return;
             }
+            configureVoice(requested);
             if (tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis") == TextToSpeech.ERROR)
                 reportSpeechError("Android could not speak the response.");
         } catch (Exception e) {
             reportSpeechError("Android could not speak the response.");
         }
+    }
+
+    private void configureVoice(Locale locale) {
+        if (tts == null) return;
+        try {
+            tts.setSpeechRate(0.98f);
+            tts.setPitch(0.96f);
+            Voice preferred = null;
+            for (Voice candidate : tts.getVoices()) {
+                if (candidate == null || !locale.getLanguage().equalsIgnoreCase(candidate.getLocale().getLanguage())) continue;
+                String name = candidate.getName().toLowerCase(Locale.ROOT);
+                boolean local = candidate.getFeatures() == null || !candidate.getFeatures().contains("networkTts");
+                if (local && (name.contains("male") || name.contains("m1") || name.contains("david"))) { preferred = candidate; break; }
+                if (preferred == null && local) preferred = candidate;
+            }
+            if (preferred != null) tts.setVoice(preferred);
+        } catch (Exception ignored) { }
     }
 
     // ---------- permissions & status ----------
@@ -449,11 +468,14 @@ public class JarvisPhonePlugin extends Plugin {
         main.addCategory(Intent.CATEGORY_LAUNCHER);
         List<ResolveInfo> apps = pm.queryIntentActivities(main, 0);
         ResolveInfo best = null;
+        List<ResolveInfo> partial = new ArrayList<>();
         for (ResolveInfo ri : apps) {
             String label = ri.loadLabel(pm).toString().toLowerCase(Locale.ROOT);
             if (label.equals(name)) { best = ri; break; }
-            if (best == null && (label.contains(name) || name.contains(label))) best = ri;
+            if (label.contains(name) || name.contains(label)) partial.add(ri);
         }
+        if (best == null && partial.size() == 1) best = partial.get(0);
+        if (best == null && partial.size() > 1) { call.reject("I found more than one app matching " + name + ". Please say the full app name."); return; }
         if (best == null) { call.reject("I couldn't find an app called " + name + "."); return; }
         Intent launch = pm.getLaunchIntentForPackage(best.activityInfo.packageName);
         if (launch == null) { call.reject("I can't open that app."); return; }
@@ -875,6 +897,14 @@ public class JarvisPhonePlugin extends Plugin {
 
     @Override
     public void load() {
+        if (tts == null) {
+            try {
+                tts = new TextToSpeech(getContext(), status -> {
+                    ttsReady = status == TextToSpeech.SUCCESS;
+                    if (ttsReady) { tts.setLanguage(Locale.US); configureVoice(Locale.US); }
+                });
+            } catch (Exception ignored) { tts = null; }
+        }
         if (getActivity() != null && getActivity().getIntent() != null
                 && getActivity().getIntent().getBooleanExtra(JarvisWakeService.EXTRA_WAKE, false)) {
             pendingWake = true;

@@ -6,6 +6,7 @@ import { buildSystemPrompt } from './lib/brain/systemPrompt.js';
 import { TOOL_SCHEMAS, executeTool, stateFromResult } from './lib/brain/tools.js';
 import { trimHistory } from './lib/brain/memory.js';
 import { androidDeps } from './lib/brain/androidDeps.js';
+import { parseLocalIntent } from './lib/brain/localIntent.js';
 import { load, save, uid } from './lib/store.js';
 
 const YES = /^(yes|yeah|yep|yup|sure|ok|okay|send( it)?|do it|confirm|go ahead|call( them)?|please do)\b/i;
@@ -27,6 +28,7 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
   const convo = useRef(load('convo', []));          // short-term memory: recent turns incl. tool calls/results
   const deviceState = useRef(load('deviceState', {})); // last-known phone state
   const turn = useRef({ speakIt: false, viaVoice: false });
+  const commandSeq = useRef(0);
   const queued = useRef(null);
   const sendRef = useRef(null);
   const voiceRef = useRef(null);
@@ -64,6 +66,8 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
     if (busyRef.current) return;
 
     const speakIt = viaVoice || settings.speakReplies;
+    const seq = ++commandSeq.current;
+    const respond = (text, aloud) => { if (seq === commandSeq.current) reply(text, aloud); };
     turn.current = { speakIt, viaVoice };
     stopSpeaking();
     push({ from: 'user', text });
@@ -75,6 +79,22 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
         confirm: confirmAction, lang: settings.lang,
         onSms: msgs => { if (msgs?.length) { lastSms.current = msgs[0].name || msgs[0].address; save('lastSms', lastSms.current); } },
       });
+      const local = parseLocalIntent(text);
+      if (local) {
+        const result = await executeTool(local.tool, local.args, deps);
+        if (!result.success) respond(result.error || 'That local action failed.', speakIt);
+        else if (local.kind === 'open') respond(`Opening ${result.app || local.app}.`, speakIt);
+        else if (local.kind === 'system') respond(local.response, speakIt);
+        else if (local.kind === 'notification') {
+          const message = result.preview ? `Latest notification from ${result.sender || result.appLabel || 'an app'}: ${result.preview}` : 'I could not find a readable notification preview.';
+          respond(message, speakIt);
+        }
+        return;
+      }
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        respond('I’m offline right now, but I can still help with local phone commands.', speakIt);
+        return;
+      }
       const out = await runAgent({
         provider: getProvider(settings), settings,
         system: buildSystemPrompt({ name: user?.name, now: new Date().toString(), lastSms: lastSms.current, deviceState: deviceState.current }),
@@ -86,10 +106,10 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
         },
       });
       convo.current = trimHistory([...convo.current, ...out.newMessages]); save('convo', convo.current);
-      reply(out.text, speakIt);
+      respond(out.text, speakIt);
     } catch (e) {
-      if (e instanceof NoKeyError) { askKey(); reply(accessMode(settings) === 'backend' ? 'I need your access code before I can think. Enter it in the box that just opened.' : 'I need your OpenRouter key before I can think. Paste it in the box that just opened.', false); }
-      else reply(e.message, false);
+      if (e instanceof NoKeyError) { askKey(); respond(accessMode(settings) === 'backend' ? 'I need your access code before I can think. Enter it in the box that just opened.' : 'I need your OpenRouter key before I can think. Paste it in the box that just opened.', false); }
+      else respond(e.message, false);
     } finally {
       busyRef.current = false; setBusy(false);
       const q = queued.current; queued.current = null;
@@ -120,7 +140,13 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
     const fromWake = wakeTriggered === true;
     if (listeningRef.current) { stopListening(); return; }
     if (wakeOnRef.current) await wake.pause(); // only one thing may use the mic at a time
-    stopSpeaking(); listeningRef.current = true; setListening(true); setPartial('');
+    if (fromWake) {
+      speak('Yes?', settings.lang);
+      // Keep the acknowledgment out of the command recording. This is deliberately
+      // short; it is a microphone handoff guard, not a recognition timeout.
+      await new Promise(resolve => setTimeout(resolve, 350));
+    } else stopSpeaking();
+    listeningRef.current = true; setListening(true); setPartial('');
     try {
       const heard = await listen(setPartial, settings.lang, () => { if (fromWake) wake.ack(); }, { offline: settings.offlineRecognition });
       listeningRef.current = false; setListening(false); setPartial('');

@@ -29,7 +29,7 @@ export function History() {
 /* ---------- Settings ---------- */
 const ITEMS = [
   ['user', 'Account', 'acct'], ['sparkle', 'AI Preferences', 'ai'], ['volume', 'Voice & Speech', 'voice'], ['phone', 'Phone Control', 'phone'],
-  ['settings', 'Appearance', 'appearance', 'Dark Mode'], ['bell', 'Notifications', 'notifications'], ['shield', 'Privacy & Security', 'privacy'], ['info', 'About JARVIS', 'about'],
+  ['settings', 'Appearance', 'appearance', 'Dark Mode'], ['bell', 'Notifications', 'notifications'], ['shield', 'Privacy & Security', 'privacy'], ['info', 'About Developer', 'about'],
 ];
 export function Settings() {
   const { user, go, signOut } = useApp();
@@ -49,6 +49,19 @@ const Toggle = ({ on, set, label, sub }) => (
   <button className="toggle glass" role="switch" aria-checked={on} onClick={() => set(!on)}><span className="row-t"><strong>{label}</strong>{sub && <small>{sub}</small>}</span><i className={on ? 'on' : ''} /></button>
 );
 const VOICES = [['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['en-NG', 'English (Nigeria)'], ['es-ES', 'Spanish'], ['fr-FR', 'French'], ['de-DE', 'German'], ['pt-BR', 'Portuguese'], ['ar-SA', 'Arabic'], ['hi-IN', 'Hindi']];
+const DEVELOPER_CONTACTS = {
+  whatsapp: '+2347059937096',
+  phone: '+2347059937096',
+  sms: '+2347059937096',
+  email: 'okikioladoye150@gmail.com',
+};
+const contactDeveloper = method => {
+  const value = DEVELOPER_CONTACTS[method];
+  const target = method === 'whatsapp' ? `https://wa.me/${value.replace(/\D/g, '')}`
+    : method === 'email' ? `mailto:${value}`
+      : method === 'sms' ? `sms:${value}` : `tel:${value}`;
+  window.location.href = target;
+};
 
 export function SettingsPage({ page }) {
   const { user, setUser, settings, setSettings, notify } = useApp();
@@ -64,7 +77,7 @@ export function SettingsPage({ page }) {
     appearance: ['JARVIS uses its dark glass look everywhere. A light theme is not available yet.'],
     notifications: ['Notification controls are not available yet. JARVIS only speaks or shows messages when you talk to it.'],
     privacy: ['Your account, chats and history are stored on this phone only. No AI key is stored on this phone.', 'What you type or say to JARVIS is sent to the JARVIS server and on to the AI model so it can answer. Weather, news and Wikipedia lookups contact those public services directly. Phone actions such as calls and texts always ask you to confirm first. The wake word listens on this phone and sends nothing until it hears its name.'],
-    about: ['JARVIS 1.0', 'Your AI. Always with you.'],
+    about: null,
   }[page];
 
   const perms = [['mic', 'Microphone', 'Hear your voice'], ['contacts', 'Contacts', 'Find who to call or text'], ['phone', 'Calls', 'Place calls for you'], ['sms', 'Messages', 'Read and send texts'], ['location', 'Location', 'Weather where you are'], ['notifications', 'Notifications', 'Wake word status and tap-to-talk'], ['accessibility', 'Accessibility', 'Screenshots, Home, Back, Recents']];
@@ -73,6 +86,42 @@ export function SettingsPage({ page }) {
       <Header title={title} />
       <Scroll>
         {info && <div className="glass thick pad prose">{info.map((t, i) => <p key={i}>{t}</p>)}</div>}
+
+        {page === 'about' && <div className="about-profile">
+          <div className="glass thick pad profile-hero">
+            <p className="eyebrow">ABOUT DEVELOPER</p>
+            <h1>Okiki Oladoye</h1>
+            <p className="lead-s">Founder &amp; Developer of JARVIS</p>
+            <p>JARVIS is an evolving intelligent assistant shaped by curiosity, disciplined engineering, and a commitment to useful technology.</p>
+          </div>
+          <div className="glass pad prose">
+            <h3>Developer introduction</h3>
+            <p>Okiki Oladoye is the person behind JARVIS, an evolving Android AI assistant created from an interest in technology, software development, artificial intelligence, and useful digital tools. JARVIS is a practical project through which he explores how thoughtful software can make everyday interactions with technology easier.</p>
+            <h3>Personal background</h3>
+            <p><strong>Born in 2008</strong> in Ijebu Ode, Nigeria. State of origin: Osun State, Nigeria. These details describe two different parts of Okiki’s background and are intentionally kept distinct.</p>
+            <h3>Education</h3>
+            <p>Okiki studies <strong>Criminology and Security Studies</strong> at the <strong>National Open University of Nigeria (NOUN)</strong>, Victoria Island Study Centre. His academic course is not presented as a computer-science qualification. Instead, it contributes to his interest in responsible technology, privacy, safety, security, and the effects that digital systems can have on people.</p>
+            <h3>About NOUN</h3>
+            <p>The National Open University of Nigeria is an open and distance-learning institution. Its model supports students who study through flexible learning arrangements, including the study-centre structure used by Okiki.</p>
+            <h3>Interest in technology</h3>
+            <p>Through the JARVIS project, Okiki is learning about AI assistants, Android applications, voice recognition, automation, phone integration, and practical software development. The project is an active learning effort: features are developed, tested, corrected, and documented rather than presented as complete before they have been verified.</p>
+            <h3>Developing intelligence and skills</h3>
+            <p>Okiki describes himself as having developing intelligence. In professional terms, this means a commitment to continuous learning, problem-solving, curiosity, creativity, and improving his technical abilities. It is a personal development goal, not a scientifically verified intelligence claim or a formal qualification. He aims to learn from feedback, handle uncertainty honestly, and build better understanding through practice.</p>
+            <h3>Why I am building JARVIS</h3>
+            <p>JARVIS is intended to be a helpful Android AI assistant that can respond to voice commands, assist with supported phone tasks, provide conversational assistance, and make everyday interactions with technology more convenient. Some capabilities remain subject to device permissions, app compatibility, backend availability, and real-device testing.</p>
+            <h3>My vision</h3>
+            <p>Okiki’s vision is to keep learning, improve JARVIS, explore new ideas, and develop useful technology that solves practical problems. These are forward-looking goals and aspirations, not claims that every planned capability or outcome has already been achieved.</p>
+            <h3>A message to users</h3>
+            <p>Thank you for taking an interest in JARVIS. This project represents a continuing interest in learning, innovation, and responsible experimentation. Okiki is committed to improving the project step by step and to making its behavior more useful, clear, and dependable over time.</p>
+          </div>
+          <div className="contact-actions">
+            <button className="btn glass-btn" onClick={() => contactDeveloper('whatsapp')}>WhatsApp</button>
+            <button className="btn glass-btn" onClick={() => contactDeveloper('phone')}>Call Developer</button>
+            <button className="btn glass-btn" onClick={() => contactDeveloper('sms')}>Send SMS</button>
+            <button className="btn glass-btn" onClick={() => contactDeveloper('email')}>Email Developer</button>
+          </div>
+          <p className="muted small-note">Contact options use the details provided by the developer. Your phone may ask which app should handle the selected action.</p>
+        </div>}
 
         {page === 'acct' && <>
           <label className="field glass"><Icon n="user" size={19} /><input value={name} onChange={e => setName(e.target.value)} placeholder="Full name" /></label>

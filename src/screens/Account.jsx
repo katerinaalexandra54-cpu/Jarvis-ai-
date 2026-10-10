@@ -60,7 +60,7 @@ const contactDeveloper = method => {
   const target = method === 'whatsapp' ? `https://wa.me/${value.replace(/\D/g, '')}`
     : method === 'email' ? `mailto:${value}`
       : method === 'sms' ? `sms:${value}` : `tel:${value}`;
-  window.location.href = target;
+  import("../lib/phone.js").then(m => m.runAction({ type: "openUrl", url: target })).catch(() => window.open(target, "_blank"));
 };
 
 export function SettingsPage({ page }) {

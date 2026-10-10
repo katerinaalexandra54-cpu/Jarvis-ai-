@@ -339,10 +339,10 @@ public class JarvisWakeService extends Service {
 
             int result = wakeTts.speak(
                     "Yes?", TextToSpeech.QUEUE_FLUSH, null, utteranceId);
-            if (result == TextToSpeech.ERROR) finish();
+            if (result == TextToSpeech.ERROR) finish.run();
             main.postDelayed(finish, 2500L);
         } catch (Throwable ignored) {
-            finish();
+            finish.run();
         }
     }
 

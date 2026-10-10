@@ -64,6 +64,15 @@ jobs:
             exit 1
           fi
           echo "Android versionCode set to ${VERSION_CODE}."
+      - name: Diagnose wake service source before Gradle
+        working-directory: android
+        run: |
+          echo "===== COMMIT ====="
+          git rev-parse HEAD
+          echo "===== WAKE SERVICE LINES 338-347 ====="
+          nl -ba app/src/main/java/com/you/jarvis/JarvisWakeService.java | sed -n '338,347p'
+          echo "===== OLD CALL SEARCH ====="
+          grep -n -E 'TextToSpeech.ERROR\) finish\(\)|^[[:space:]]*finish\(\);' app/src/main/java/com/you/jarvis/JarvisWakeService.java || true
       - name: Build debug and unsigned release variants
         run: chmod +x gradlew && ./gradlew --no-daemon assembleDebug assembleRelease
         working-directory: android

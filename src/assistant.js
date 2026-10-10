@@ -123,16 +123,51 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
 
   // Give the microphone back to the wake word once JARVIS is completely idle (not thinking, not waiting for a
   // yes/no, not listening, not speaking). Otherwise the wake engine would hear JARVIS's own voice.
+  const conversationUntilRef = useRef(0);
+
   const resumeWhenIdle = useCallback(async () => {
     if (!wakeOnRef.current) return;
-    for (let i = 0; i < 180; i++) { // up to ~90 s
-      await new Promise(r => setTimeout(r, 500));
+
+    // Wait for the current command, confirmation, recording, and speech
+    // playback to finish before starting another listening session.
+    for (let i = 0; i < 240; i++) {
       if (!wakeOnRef.current) return;
-      if (busyRef.current || pendingRef.current || listeningRef.current) continue;
-      if (await wake.isSpeaking()) continue;
-      break;
+
+      const speaking = await wake.isSpeaking();
+      if (
+        !busyRef.current &&
+        !pendingRef.current &&
+        !listeningRef.current &&
+        !speaking
+      ) {
+        break;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 250));
     }
-    await new Promise(r => setTimeout(r, 400));
+
+    if (!wakeOnRef.current) return;
+    if (busyRef.current || pendingRef.current || listeningRef.current) return;
+
+    // During an active conversation, listen again without requiring
+    // the user to repeat the wake phrase.
+    if (Date.now() < conversationUntilRef.current) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      if (
+        wakeOnRef.current &&
+        !busyRef.current &&
+        !pendingRef.current &&
+        !listeningRef.current &&
+        Date.now() < conversationUntilRef.current
+      ) {
+        await voiceRef.current?.(false);
+      }
+      return;
+    }
+
+    // The conversation window has ended. Return to wake-word mode.
+    await new Promise(resolve => setTimeout(resolve, 400));
     if (wakeOnRef.current) wake.resume();
   }, []);
 
@@ -141,16 +176,23 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
     if (listeningRef.current) { stopListening(); return; }
     if (wakeOnRef.current) await wake.pause(); // only one thing may use the mic at a time
     if (fromWake) {
-      speak('Yes?', settings.lang);
-      // Keep the acknowledgment out of the command recording. This is deliberately
-      // short; it is a microphone handoff guard, not a recognition timeout.
-      await new Promise(resolve => setTimeout(resolve, 350));
+      // The native wake service already speaks "Yes?" and only emits
+      // the wake event after its acknowledgment finishes.
+      await new Promise(resolve => setTimeout(resolve, 150));
     } else stopSpeaking();
     listeningRef.current = true; setListening(true); setPartial('');
     try {
       const heard = await listen(setPartial, settings.lang, () => { if (fromWake) wake.ack(); }, { offline: settings.offlineRecognition });
       listeningRef.current = false; setListening(false); setPartial('');
-      if (heard.trim()) await send(heard, { viaVoice: true });
+      if (heard.trim()) {
+        const endConversation = /^(goodbye(?:\\s+jarvis)?|bye\\s+jarvis|that's all jarvis|that is all jarvis|stop listening)\\b/i.test(heard.trim());
+
+        await send(heard, { viaVoice: true });
+
+        // Keep the microphone conversation open for 30 seconds after
+        // each completed voice turn, unless the user says goodbye.
+        conversationUntilRef.current = endConversation ? 0 : Date.now() + 30000;
+      }
     } catch (e) { listeningRef.current = false; setListening(false); setPartial(''); if (e?.code !== 'NO_SPEECH') notify(e.message); }
     finally { resumeWhenIdle(); }
   }, [settings.lang, settings.offlineRecognition, send, notify, resumeWhenIdle]);

@@ -53,7 +53,14 @@ export const TOOLS = [
     description: 'Open an app search for a query. Currently supports YouTube search through its public Android/web URL.',
     parameters: { type: 'object', properties: { app: { type: 'string', enum: ['youtube'] }, query: { type: 'string' } }, required: ['app', 'query'] },
     async run({ app, query }, d) {
-      const url = `https://www.youtube.com/results?search_query=${enc(query)}`;
+      const cleanedQuery = query
+        .replace(/^\s*(play|listen to|put on)\s+/i, '')
+        .replace(/\s+(please|for me)$/i, '')
+        .trim();
+      const musicQuery = /\b(official|music video|lyrics)\b/i.test(cleanedQuery)
+        ? cleanedQuery
+        : `${cleanedQuery} official song music video`;
+      const url = `https://music.youtube.com/search?q=${enc(musicQuery)}`;
       await d.run({ type: 'openUrl', url });
       return { app, query, opened: true };
     },

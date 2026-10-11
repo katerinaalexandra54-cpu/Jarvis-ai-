@@ -137,13 +137,30 @@ public class JarvisPhonePlugin extends Plugin {
 
     // ---------- permissions & status ----------
 
+    private boolean isAccessibilityEnabled() {
+        String enabled = android.provider.Settings.Secure.getString(
+                getContext().getContentResolver(),
+                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        if (enabled == null || enabled.isEmpty()) return false;
+
+        android.content.ComponentName target =
+                new android.content.ComponentName(getContext(), JarvisAccessibilityService.class);
+
+        for (String item : enabled.split(":")) {
+            android.content.ComponentName component =
+                    android.content.ComponentName.unflattenFromString(item);
+            if (target.equals(component)) return true;
+        }
+        return false;
+    }
+
     private JSObject statusObject() {
         JSObject o = new JSObject();
         o.put("mic", has(Manifest.permission.RECORD_AUDIO));
         o.put("contacts", has(Manifest.permission.READ_CONTACTS));
         o.put("phone", has(Manifest.permission.CALL_PHONE));
         o.put("sms", has(Manifest.permission.SEND_SMS) && has(Manifest.permission.READ_SMS));
-        o.put("accessibility", JarvisAccessibilityService.instance != null);
+        o.put("accessibility", isAccessibilityEnabled());
         o.put("location", has(Manifest.permission.ACCESS_COARSE_LOCATION));
         o.put("notifications", (Build.VERSION.SDK_INT < 33 || has(Manifest.permission.POST_NOTIFICATIONS))
                 && NotificationManagerCompat.from(getContext()).areNotificationsEnabled());

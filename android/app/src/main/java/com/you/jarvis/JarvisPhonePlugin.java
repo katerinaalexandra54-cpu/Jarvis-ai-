@@ -137,13 +137,30 @@ public class JarvisPhonePlugin extends Plugin {
 
     // ---------- permissions & status ----------
 
+    private boolean isAccessibilityEnabled() {
+        String enabled = android.provider.Settings.Secure.getString(
+                getContext().getContentResolver(),
+                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        if (enabled == null || enabled.isEmpty()) return false;
+
+        android.content.ComponentName target =
+                new android.content.ComponentName(getContext(), JarvisAccessibilityService.class);
+
+        for (String item : enabled.split(":")) {
+            android.content.ComponentName component =
+                    android.content.ComponentName.unflattenFromString(item);
+            if (target.equals(component)) return true;
+        }
+        return false;
+    }
+
     private JSObject statusObject() {
         JSObject o = new JSObject();
         o.put("mic", has(Manifest.permission.RECORD_AUDIO));
         o.put("contacts", has(Manifest.permission.READ_CONTACTS));
         o.put("phone", has(Manifest.permission.CALL_PHONE));
         o.put("sms", has(Manifest.permission.SEND_SMS) && has(Manifest.permission.READ_SMS));
-        o.put("accessibility", JarvisAccessibilityService.instance != null);
+        o.put("accessibility", isAccessibilityEnabled());
         o.put("location", has(Manifest.permission.ACCESS_COARSE_LOCATION));
         o.put("notifications", (Build.VERSION.SDK_INT < 33 || has(Manifest.permission.POST_NOTIFICATIONS))
                 && NotificationManagerCompat.from(getContext()).areNotificationsEnabled());
@@ -1003,6 +1020,49 @@ public class JarvisPhonePlugin extends Plugin {
         o.put("pending", pendingWake);
         pendingWake = false;
         call.resolve(o);
+    }
+
+
+    @PluginMethod
+    public void overlayPermissionStatus(PluginCall call) {
+        JSObject result = new JSObject();
+        boolean allowed = Build.VERSION.SDK_INT < 23
+            || Settings.canDrawOverlays(getContext());
+        result.put("granted", allowed);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void requestOverlayPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(getContext())) {
+            call.resolve();
+            return;
+        }
+        try {
+            Intent intent = new Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getContext().getPackageName())
+            );
+            launch(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Could not open Android overlay permission settings.", e);
+        }
+    }
+
+    @PluginMethod
+    public void showOverlay(PluginCall call) {
+        String state = call.getString("state", "listening");
+        boolean allowed = JarvisOverlay.show(getContext(), state);
+        JSObject result = new JSObject();
+        result.put("shown", allowed);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void hideOverlay(PluginCall call) {
+        JarvisOverlay.hide();
+        call.resolve();
     }
 
     // ---------- images ----------

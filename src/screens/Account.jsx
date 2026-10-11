@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useApp } from '../ctx.js';
 import { Header, Icon, Row, Scroll } from '../components.jsx';
 import { ago, updateAccount } from '../lib/store.js';
-import { isNative, openAccessibility, phoneStatus, requestPermissions, speak } from '../lib/phone.js';
+import { isNative, openAccessibility, overlay, phoneStatus, requestPermissions, speak } from '../lib/phone.js';
 import { accessMode, clearToken, hasToken } from '../lib/providers/index.js';
 
 /* ---------- History ---------- */
@@ -159,6 +159,7 @@ export function SettingsPage({ page }) {
           <div className="glass thick results">{perms.map(([k, t, s]) => (
             <div key={k} className="perm"><span className="row-t"><strong>{t}</strong><small>{s}</small></span><b className={st?.[k] ? 'ok' : 'off'}>{st?.[k] ? 'On' : 'Off'}</b></div>))}</div>
           <button className="btn" disabled={!isNative()} onClick={() => requestPermissions().then(setSt).catch(e => notify(e.message))}>Allow permissions</button>
+          <button className="btn glass-btn" disabled={!isNative()} onClick={() => overlay.requestPermission().then(() => notify('If Android Settings opened, allow Display over other apps for JARVIS, then return to the app.')).catch(e => notify(e.message))}>Allow floating JARVIS animation</button>
           <button className="btn glass-btn" disabled={!isNative()} onClick={() => openAccessibility().catch(e => notify(e.message))}>Turn on Accessibility</button>
           <p className="muted small-note">JARVIS Phone Control is used only for an explicit command such as Home, Back, reading a visible conversation, replying, scrolling, or pressing a named visible control. It does not read passwords, PINs, OTPs, or secure fields, cannot unlock the phone, and never silently monitors your screen. Messaging support is generic: it works only where the active app exposes compatible accessibility controls, not every app. Replies always require confirmation, and JARVIS reports failure unless Android verifies the visible Send action. In Accessibility, open Installed apps, choose Jarvis and switch it on.</p></>}
       </Scroll>

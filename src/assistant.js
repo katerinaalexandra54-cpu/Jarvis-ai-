@@ -39,16 +39,63 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
   const push = useCallback(m => setMessages(ms => [...ms, { id: uid(), ts: Date.now(), ...m }]), []);
   const reply = useCallback((text, speakIt) => { push({ from: 'jarvis', text }); if (speakIt) speak(text, settings.lang); }, [push, settings.lang]);
 
-  // Called by the call/text tools. Resolves true/false when the user answers yes/no (or taps a button).
+  // Ask for confirmation aloud and listen for a spoken yes/no.
   const confirmAction = useCallback(({ kind, label, body }) => new Promise(resolve => {
-    const ask = kind === 'call' ? `Call ${label}?` : kind === 'message' ? `Prepare this message for ${label}: "${body}"? You will still tap Send in the app.` : kind === 'generic' ? `Allow JARVIS to ${label}?` : `Send to ${label}: "${body}". Should I send it?`;
-    const item = { action: { type: kind === 'call' ? 'call' : kind === 'message' ? 'message' : kind === 'generic' ? 'generic' : 'sendSms' }, label, resolve };
+    const ask = kind === 'call'
+      ? `Call ${label}?`
+      : kind === 'message'
+        ? `Prepare this message for ${label}: "${body}"? You may still need to tap Send in the messaging app.`
+        : kind === 'generic'
+          ? `Allow JARVIS to ${label}?`
+          : `Send to ${label}: "${body}". Should I send it?`;
+
+    const item = {
+      action: {
+        type: kind === 'call' ? 'call'
+          : kind === 'message' ? 'message'
+          : kind === 'generic' ? 'generic'
+          : 'sendSms'
+      },
+      label,
+      resolve
+    };
+
     setPending(item);
     push({ from: 'jarvis', text: ask, confirm: true });
+
     if (turn.current.speakIt) speak(ask, settings.lang);
-    if (turn.current.viaVoice) setTimeout(() => { if (pendingRef.current === item) voiceRef.current?.(); }, 2800);
-    setTimeout(() => { if (pendingRef.current === item) { setPending(null); resolve(false); } }, 60000); // never hang forever
-  }), [push]);
+
+    if (turn.current.viaVoice) {
+      const waitForPromptThenListen = async () => {
+        const startedAt = Date.now();
+
+        // Allow TTS to start, then wait while the question is being spoken.
+        await new Promise(resolveDelay => setTimeout(resolveDelay, 1200));
+
+        while (
+          pendingRef.current === item &&
+          Date.now() - startedAt < 30000 &&
+          await wake.isSpeaking()
+        ) {
+          await new Promise(resolveDelay => setTimeout(resolveDelay, 250));
+        }
+
+        // Only reopen the microphone if the confirmation is still pending.
+        if (pendingRef.current === item) voiceRef.current?.(false);
+      };
+
+      waitForPromptThenListen().catch(() => {
+        if (pendingRef.current === item) voiceRef.current?.(false);
+      });
+    }
+
+    setTimeout(() => {
+      if (pendingRef.current === item) {
+        setPending(null);
+        resolve(false);
+      }
+    }, 60000);
+  }), [push, settings.lang]);
 
   const send = useCallback(async (raw, { viaVoice = false } = {}) => {
     const text = raw.trim();

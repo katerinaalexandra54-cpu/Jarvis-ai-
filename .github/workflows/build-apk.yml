@@ -2,9 +2,11 @@ name: Build Jarvis APK
 on:
   push:
     branches: [main]
+    tags:
+      - 'jarvis-v*'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -150,3 +152,10 @@ jobs:
           name: jarvis-signed-release-apk
           path: android/app/build/outputs/apk/release/jarvis-release.apk
           if-no-files-found: error
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/jarvis-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: JARVIS ${{ github.ref_name }}
+          generate_release_notes: true
+          files: android/app/build/outputs/apk/release/jarvis-release.apk

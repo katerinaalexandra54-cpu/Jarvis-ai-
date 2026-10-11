@@ -1022,6 +1022,49 @@ public class JarvisPhonePlugin extends Plugin {
         call.resolve(o);
     }
 
+
+    @PluginMethod
+    public void overlayPermissionStatus(PluginCall call) {
+        JSObject result = new JSObject();
+        boolean allowed = Build.VERSION.SDK_INT < 23
+            || Settings.canDrawOverlays(getContext());
+        result.put("granted", allowed);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void requestOverlayPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(getContext())) {
+            call.resolve();
+            return;
+        }
+        try {
+            Intent intent = new Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getContext().getPackageName())
+            );
+            launch(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Could not open Android overlay permission settings.", e);
+        }
+    }
+
+    @PluginMethod
+    public void showOverlay(PluginCall call) {
+        String state = call.getString("state", "listening");
+        boolean allowed = JarvisOverlay.show(getContext(), state);
+        JSObject result = new JSObject();
+        result.put("shown", allowed);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void hideOverlay(PluginCall call) {
+        JarvisOverlay.hide();
+        call.resolve();
+    }
+
     // ---------- images ----------
 
     @PluginMethod

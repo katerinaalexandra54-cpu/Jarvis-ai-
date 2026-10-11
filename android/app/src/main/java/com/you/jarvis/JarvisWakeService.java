@@ -352,6 +352,7 @@ public class JarvisWakeService extends Service {
         acked = false;
 
         main.post(() -> {
+            JarvisOverlay.show(getApplicationContext(), "listening");
             releaseAudioOnly();
             speakWakeAcknowledgement(() -> {
                 Listener l = listener;

@@ -64,6 +64,14 @@ if (!sx.includes('jarvis_accessibility_description')) {
 // 5. Manifest: permissions, package queries, accessibility service
 const manifestPath = path.join(main, 'AndroidManifest.xml');
 let mf = fs.readFileSync(manifestPath, 'utf8');
+if (!mf.includes('android.permission.SYSTEM_ALERT_WINDOW')) {
+  mf = mf.replace(
+    '<application',
+    '    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />\\n    <application'
+  );
+  fs.writeFileSync(manifestPath, mf);
+}
+
 if (!mf.includes('JarvisAccessibilityService')) {
   const perms = ['RECORD_AUDIO', 'READ_CONTACTS', 'CALL_PHONE', 'SEND_SMS', 'READ_SMS']
     .map(p => `    <uses-permission android:name="android.permission.${p}" />`).join('\n')

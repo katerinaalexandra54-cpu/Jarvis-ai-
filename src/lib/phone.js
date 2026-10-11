@@ -133,6 +133,28 @@ export const wake = {
     return () => h.remove();
   },
 };
+
+export const overlay = {
+  permissionStatus: async () => {
+    try {
+      return isNative()
+        ? await Native.overlayPermissionStatus()
+        : { granted: false };
+    } catch {
+      return { granted: false };
+    }
+  },
+  requestPermission: () => isNative()
+    ? Native.requestOverlayPermission()
+    : Promise.reject(new Error("Overlay permission is available only on Android.")),
+  show: (state = "listening") => isNative()
+    ? Native.showOverlay({ state }).catch(() => ({ shown: false }))
+    : Promise.resolve({ shown: false }),
+  hide: () => isNative()
+    ? Native.hideOverlay().catch(() => {})
+    : Promise.resolve(),
+};
+
 export const notificationAccess = {
   openSettings: () => (isNative() ? Native.openNotificationAccess() : Promise.reject(new Error('Notification access works in the Android app.'))),
   preview: () => (isNative() ? Native.captureNotificationPreview() : Promise.reject(new Error('Notification access works in the Android app.'))),

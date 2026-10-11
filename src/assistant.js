@@ -108,8 +108,8 @@ export function useAssistant({ settings, setSettings, user, askKey, upsertHistor
       convo.current = trimHistory([...convo.current, ...out.newMessages]); save('convo', convo.current);
       respond(out.text, speakIt);
     } catch (e) {
-      if (e instanceof NoKeyError) { askKey(); respond(accessMode(settings) === 'backend' ? 'I need your access code before I can think. Enter it in the box that just opened.' : 'I need your OpenRouter key before I can think. Paste it in the box that just opened.', false); }
-      else respond(e.message, false);
+      if (e instanceof NoKeyError) { askKey(); respond(accessMode(settings) === 'backend' ? 'I need your access code before I can think. Enter it in the box that just opened.' : 'I need your OpenRouter key before I can think. Paste it in the box that just opened.', speakIt); }
+      else respond(e.message || 'Sorry, something went wrong. Please try again.', speakIt);
     } finally {
       busyRef.current = false; setBusy(false);
       const q = queued.current; queued.current = null;

@@ -122,8 +122,8 @@ public final class JarvisOverlay {
             float r = Math.min(dp(getContext(), 91), Math.min(w * 0.39f, h * 0.43f));
             boolean thinking = "thinking".equals(state);
             boolean speaking = "speaking".equals(state);
-            float pulse = 1f + (float)Math.sin(t * (speaking ? 5f : 2.1f))
-                * (speaking ? 0.045f : 0.018f);
+            float pulse = 1f + (float)Math.sin(t * (speaking ? 7.5f : thinking ? 3.2f : 2.1f))
+                * (speaking ? 0.075f : thinking ? 0.035f : 0.02f);
             r *= pulse;
 
             int save = canvas.save();
@@ -150,6 +150,30 @@ public final class JarvisOverlay {
                 0xffb8a0ff, 0xff9a76ff, 0xffd9fbff
             }, null));
             canvas.drawCircle(0, 0, r, rim);
+            rim.setShader(null);
+
+            // Thick rotating holographic energy rings.
+            float orbitSpeed = speaking ? 68f : thinking ? 38f : 20f;
+            rim.setShader(new SweepGradient(0, 0, new int[] {
+                0x00a6faff, 0xff70eaff, 0xff628bff,
+                0xffc18aff, 0xff65dcff, 0x00a6faff
+            }, null));
+            rim.setStrokeWidth(dpf(getContext(), speaking ? 8f : 6f));
+
+            canvas.save();
+            canvas.rotate(t * orbitSpeed);
+            canvas.drawOval(
+                new RectF(-r * 1.08f, -r * 0.34f,
+                           r * 1.08f,  r * 0.34f), rim);
+            canvas.restore();
+
+            canvas.save();
+            canvas.rotate(-t * orbitSpeed * 0.68f + 52f);
+            rim.setStrokeWidth(dpf(getContext(), speaking ? 5.5f : 4f));
+            canvas.drawOval(
+                new RectF(-r * 1.02f, -r * 0.25f,
+                           r * 1.02f,  r * 0.25f), rim);
+            canvas.restore();
             rim.setShader(null);
 
             glow.setStrokeWidth(dpf(getContext(), 2.2f));

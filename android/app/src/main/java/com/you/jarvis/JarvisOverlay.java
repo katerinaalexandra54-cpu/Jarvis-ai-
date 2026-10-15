@@ -83,10 +83,6 @@ public final class JarvisOverlay {
         return n * c.getResources().getDisplayMetrics().density;
     }
 
-    private static float dp(Context c, float n) {
-        return n * c.getResources().getDisplayMetrics().density;
-    }
-
     private static final class OrbView extends View {
         private final Paint fill = new Paint(3);
         private final Paint rim = new Paint(3);

@@ -79,6 +79,10 @@ public final class JarvisOverlay {
         return (int) (n * c.getResources().getDisplayMetrics().density + 0.5f);
     }
 
+    private static float dpf(Context c, float n) {
+        return n * c.getResources().getDisplayMetrics().density;
+    }
+
     private static float dp(Context c, float n) {
         return n * c.getResources().getDisplayMetrics().density;
     }
@@ -152,11 +156,11 @@ public final class JarvisOverlay {
             canvas.drawCircle(0, 0, r, rim);
             rim.setShader(null);
 
-            glow.setStrokeWidth(dp(getContext(), 2.2f));
+            glow.setStrokeWidth(dpf(getContext(), 2.2f));
             glow.setColor(0x9978caff);
             canvas.drawCircle(0, 0, r - dp(getContext(), 5), glow);
 
-            rim.setStrokeWidth(dp(getContext(), 1.1f));
+            rim.setStrokeWidth(dpf(getContext(), 1.1f));
             rim.setColor(0x887bdcff);
             RectF inner = new RectF(-r * 0.88f, -r * 0.91f, r * 0.88f, r * 0.91f);
             canvas.drawOval(inner, rim);
@@ -180,7 +184,7 @@ public final class JarvisOverlay {
             glow.setStrokeWidth(dp(getContext(), speaking ? 7 : 5));
             canvas.drawPath(a, glow);
 
-            wave.setStrokeWidth(dp(getContext(), 2.3f));
+            wave.setStrokeWidth(dpf(getContext(), 2.3f));
             wave.setShader(new LinearGradient(
                 -r, -r * 0.5f, r, r * 0.5f,
                 new int[] { 0xffa4ffff, 0xff65cfff, 0xffd2a0ff, 0xfff0d8ff },
@@ -195,7 +199,7 @@ public final class JarvisOverlay {
             ribbon.moveTo(-r * 0.82f, -r * 0.12f);
             ribbon.cubicTo(-r * 0.25f, -r * 0.78f,
                            r * 0.25f, r * 0.79f, r * 0.82f, r * 0.04f);
-            rim.setStrokeWidth(dp(getContext(), 1.3f));
+            rim.setStrokeWidth(dpf(getContext(), 1.3f));
             rim.setColor(0x9979dcff);
             canvas.drawPath(ribbon, rim);
 
@@ -206,7 +210,7 @@ public final class JarvisOverlay {
                 float x = (float)Math.cos(angle) * rr;
                 float y = (float)Math.sin(angle) * rr;
                 stars.setColor(i % 3 == 0 ? 0x9978dfff : 0x557c8fff);
-                canvas.drawCircle(x, y, dp(getContext(), i % 3 == 0 ? 1.5f : 0.8f), stars);
+                canvas.drawCircle(x, y, dpf(getContext(), i % 3 == 0 ? 1.5f : 0.8f), stars);
             }
 
             canvas.restoreToCount(save);

@@ -1,4 +1,5 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
+import { backendUrl, getToken } from './providers/backend.js';
 
 const Native = registerPlugin('JarvisPhone');
 export const isNative = () => Capacitor.isNativePlatform();
@@ -9,13 +10,93 @@ export const openAccessibility = () => Native.openAccessibilitySettings();
 
 const plain = t => String(t).replace(/[*_#`>]/g, '').replace(/\s+/g, ' ').trim();
 
+let naturalAudio = null;
+
+async function playNaturalVoice(text) {
+  const base = backendUrl();
+  const token = getToken();
+  if (!base || !token) return false;
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25000);
+    let response;
+    try {
+      response = await fetch(`${base}/api/ai/tts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ text }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!response.ok) return false;
+    const data = await response.json();
+    let audioUrl;
+    try { audioUrl = new URL(data.audio); } catch { return false; }
+    if (audioUrl.protocol !== 'https:' || audioUrl.hostname !== 'replicate.delivery') return false;
+
+    const audio = new Audio(data.audio);
+    naturalAudio = audio;
+
+    return await new Promise(resolve => {
+      let finished = false;
+      const finish = ok => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(watchdog);
+        audio.onended = null;
+        audio.onerror = null;
+        audio.onabort = null;
+        if (naturalAudio === audio) naturalAudio = null;
+        resolve(ok);
+      };
+      const watchdog = setTimeout(() => {
+        audio.pause();
+        finish(false);
+      }, 45000);
+
+      audio.onended = () => finish(true);
+      audio.onerror = () => finish(false);
+      audio.onabort = () => finish(false);
+      audio.play().catch(() => finish(false));
+    });
+  } catch {
+    naturalAudio = null;
+    return false;
+  }
+}
+
 export async function speak(text, lang = 'en-US') {
   const t = plain(text).slice(0, 700);
   if (!t) return;
-  if (isNative()) { try { await Native.speak({ text: t, lang }); } catch { /* speech engine missing */ } return; }
-  if ('speechSynthesis' in window) { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang = lang; speechSynthesis.speak(u); }
+
+  // Prefer Android's local TTS; it does not depend on the server TTS route.
+  if (isNative()) {
+    try {
+      await Native.speak({ text: t, lang });
+      return;
+    } catch {
+      // Fall through to the available audio alternatives.
+    }
+  }
+
+  if (await playNaturalVoice(t)) return;
+
+  if ('speechSynthesis' in window) {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(t);
+    u.lang = lang;
+    speechSynthesis.speak(u);
+  }
 }
 export function stopSpeaking() {
+  if (naturalAudio) { naturalAudio.pause(); naturalAudio.currentTime = 0; naturalAudio = null; }
   if (isNative()) Native.stopSpeaking().catch(() => {});
   else if ('speechSynthesis' in window) speechSynthesis.cancel();
 }
@@ -33,9 +114,15 @@ export async function listen(onPartial = () => {}, lang = 'en-US', onStarted = (
     const h = await Native.addListener('partial', e => onPartial(e.text));
     const started = await Native.addListener('listeningStarted', () => onStarted());
     try {
-      const result = options.offline && /^en-US$/i.test(lang) && Native.listenOffline
-        ? await Native.listenOffline({ lang })
-        : await Native.listen({ lang });
+      let result;
+      if (options.offline) {
+        if (!/^en-US$/i.test(lang)) {
+          throw new Error('Offline voice recognition currently supports English (US). Select English (US) in Voice settings.');
+        }
+        result = await Native.listenOffline({ lang: 'en-US' });
+      } else {
+        result = await Native.listen({ lang });
+      }
       return result.text || '';
     } finally { h.remove(); started.remove(); }
   }

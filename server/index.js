@@ -29,7 +29,7 @@ app.use('/api', (req, res, next) => {
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'jarvis-api', version: '1.0.0' }));
 
 // Simple in-memory sliding-window limiter. Old entries are pruned so the maps cannot grow without bound.
-const hits = new Map(), regHits = new Map();
+const hits = new Map(), regHits = new Map(), ttsHits = new Map();
 const limited = (map, ip, max, windowMs) => {
   const now = Date.now(), recent = (map.get(ip) || []).filter(t => now - t < windowMs);
   map.set(ip, [...recent, now]);
@@ -55,6 +55,40 @@ app.post('/api/ai/chat', (req, res, next) => {
 }, express.json({ limit: '15mb' }), async (req, res) => { // 15 MB leaves room for PDF/image analysis requests
   const out = await forwardChat(process.env, req.headers, req.body);
   res.status(out.status).json(out.body);
+});
+
+
+// Protected OmegaTech speech generation. The phone never needs a provider secret.
+app.post('/api/ai/tts', (req, res, next) => {
+  if (limited(ttsHits, req.ip, 20, 60000)) {
+    return res.status(429).json({ error: { message: 'Speech limit reached. Try again shortly.' } });
+  }
+  const a = authorize(process.env, req.headers);
+  return a.ok ? next() : res.status(a.status).json(a.body);
+}, express.json({ limit: '16kb' }), async (req, res) => {
+  const text = String(req.body?.text || '').replace(/\s+/g, ' ').trim().slice(0, 700);
+  if (!text) return res.status(400).json({ error: { message: 'Speech text is required.' } });
+
+  try {
+    const endpoint = new URL('https://api.omegatech.app/api/ai/text2speech-v3');
+    endpoint.searchParams.set('text', text);
+    endpoint.searchParams.set('voice', 'woman1');
+    endpoint.searchParams.set('language', 'English');
+
+    const upstream = await fetch(endpoint, { signal: AbortSignal.timeout(20000) });
+    const data = await upstream.json();
+    if (!upstream.ok || data?.success !== true || typeof data.audio !== 'string') {
+      return res.status(502).json({ error: { message: 'Natural speech is temporarily unavailable.' } });
+    }
+
+    const audioUrl = new URL(data.audio);
+    if (audioUrl.protocol !== 'https:' || audioUrl.hostname !== 'replicate.delivery') {
+      return res.status(502).json({ error: { message: 'Speech provider returned an invalid audio link.' } });
+    }
+    return res.json({ audio: audioUrl.href });
+  } catch {
+    return res.status(502).json({ error: { message: 'Natural speech is temporarily unavailable.' } });
+  }
 });
 
 // Old, unused routes (/api/chat with a hardcoded Anthropic call, /api/voice/transcribe, /api/phone/*) were removed:

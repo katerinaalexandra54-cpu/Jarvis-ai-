@@ -119,7 +119,7 @@ public final class JarvisOverlay {
             float t = (System.currentTimeMillis() - started) / 1000f;
             float cx = w * 0.5f;
             float cy = h * 0.48f;
-            float r = Math.min(dp(getContext(), 91), Math.min(w * 0.39f, h * 0.43f));
+            float r = Math.min(dp(getContext(), 101), Math.min(w * 0.43f, h * 0.46f));
             boolean thinking = "thinking".equals(state);
             boolean speaking = "speaking".equals(state);
             float pulse = 1f + (float)Math.sin(t * (speaking ? 7.5f : thinking ? 3.2f : 2.1f))
@@ -130,14 +130,14 @@ public final class JarvisOverlay {
             canvas.translate(cx, cy);
 
             // Soft ambient holographic aura.
-            glow.setStrokeWidth(dp(getContext(), 9));
-            glow.setColor(0x553f75ff);
+            glow.setStrokeWidth(dpf(getContext(), speaking ? 18f : 13f));
+            glow.setColor(speaking ? 0x997b24ff : 0x77520dff);
             canvas.drawCircle(0, 0, r + dp(getContext(), 3), glow);
 
             // Glass sphere with deep blue center and violet edges.
             fill.setShader(new RadialGradient(
                 -r * 0.22f, -r * 0.34f, r * 1.55f,
-                new int[] { 0x553c9fff, 0x302a42d8, 0x402c4cff, 0x664d20a8 },
+                new int[] { 0x1800dfff, 0x281b1b6a, 0x4410092b, 0xee03040b },
                 new float[] { 0f, 0.43f, 0.78f, 1f },
                 Shader.TileMode.CLAMP
             ));
@@ -146,8 +146,8 @@ public final class JarvisOverlay {
 
             // Multiple translucent glass contours.
             rim.setShader(new SweepGradient(0, 0, new int[] {
-                0xffa6faff, 0x667c8fff, 0xff78dcff,
-                0xffb8a0ff, 0xff9a76ff, 0xffd9fbff
+                0xff00eaff, 0xff164dff, 0xffa000ff,
+                0xffff168f, 0xff5425ff, 0xff00eaff
             }, null));
             canvas.drawCircle(0, 0, r, rim);
             rim.setShader(null);
@@ -155,10 +155,10 @@ public final class JarvisOverlay {
             // Thick rotating holographic energy rings.
             float orbitSpeed = speaking ? 68f : thinking ? 38f : 20f;
             rim.setShader(new SweepGradient(0, 0, new int[] {
-                0x00a6faff, 0xff70eaff, 0xff628bff,
-                0xffc18aff, 0xff65dcff, 0x00a6faff
+                0x0000eaff, 0xff00eaff, 0xff174dff,
+                0xffe000ff, 0xffff168f, 0x0000eaff
             }, null));
-            rim.setStrokeWidth(dpf(getContext(), speaking ? 8f : 6f));
+            rim.setStrokeWidth(dpf(getContext(), speaking ? 13f : 9f));
 
             canvas.save();
             canvas.rotate(t * orbitSpeed);
@@ -169,7 +169,7 @@ public final class JarvisOverlay {
 
             canvas.save();
             canvas.rotate(-t * orbitSpeed * 0.68f + 52f);
-            rim.setStrokeWidth(dpf(getContext(), speaking ? 5.5f : 4f));
+            rim.setStrokeWidth(dpf(getContext(), speaking ? 9f : 6.5f));
             canvas.drawOval(
                 new RectF(-r * 1.02f, -r * 0.25f,
                            r * 1.02f,  r * 0.25f), rim);
@@ -201,13 +201,13 @@ public final class JarvisOverlay {
             canvas.save();
             canvas.rotate((float)Math.sin(t * 0.35f) * 3f);
             glow.setColor(0xaa706aff);
-            glow.setStrokeWidth(dp(getContext(), speaking ? 7 : 5));
+            glow.setStrokeWidth(dpf(getContext(), speaking ? 15f : thinking ? 11f : 9f));
             canvas.drawPath(a, glow);
 
-            wave.setStrokeWidth(dpf(getContext(), 2.3f));
+            wave.setStrokeWidth(dpf(getContext(), speaking ? 7f : 5.5f));
             wave.setShader(new LinearGradient(
                 -r, -r * 0.5f, r, r * 0.5f,
-                new int[] { 0xffa4ffff, 0xff65cfff, 0xffd2a0ff, 0xfff0d8ff },
+                new int[] { 0xff00ffff, 0xff087dff, 0xffb000ff, 0xffff168f },
                 null, Shader.TileMode.CLAMP
             ));
             canvas.drawPath(a, wave);
@@ -219,8 +219,8 @@ public final class JarvisOverlay {
             ribbon.moveTo(-r * 0.82f, -r * 0.12f);
             ribbon.cubicTo(-r * 0.25f, -r * 0.78f,
                            r * 0.25f, r * 0.79f, r * 0.82f, r * 0.04f);
-            rim.setStrokeWidth(dpf(getContext(), 1.3f));
-            rim.setColor(0x9979dcff);
+            rim.setStrokeWidth(dpf(getContext(), speaking ? 5f : 3.8f));
+            rim.setColor(0xff5b8dff);
             canvas.drawPath(ribbon, rim);
 
             // Small, subdued points of light inside the orb.

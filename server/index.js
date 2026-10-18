@@ -1,3 +1,4 @@
+import { authorize } from './auth.js';
 import 'dotenv/config';
 import express from 'express';
 import path from 'node:path';
@@ -15,7 +16,7 @@ const port = process.env.PORT || 8787;
 app.use((_req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Cache-Control', 'no-store'); next(); });
 
 // CORS allowlist so the Capacitor APK (served from capacitor://localhost) can call a remote server.
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'capacitor://localhost,http://localhost,https://localhost').split(',').map(s => s.trim()).filter(Boolean);
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'capacitor://localhost,http://localhost,http://localhost:5173,https://localhost').split(',').map(s => s.trim()).filter(Boolean);
 app.use('/api', (req, res, next) => {
   const origin = req.headers.origin;
   if (origin && allowedOrigins.includes(origin)) {
@@ -88,6 +89,71 @@ app.post('/api/ai/tts', (req, res, next) => {
     return res.json({ audio: audioUrl.href });
   } catch {
     return res.status(502).json({ error: { message: 'Natural speech is temporarily unavailable.' } });
+  }
+});
+
+
+// Authenticated image generation. Return image bytes, never a provider URL.
+app.post('/api/ai/image', express.json({ limit: '20kb' }), async (req, res) => {
+  const auth = authorize(process.env, req.headers);
+  if (!auth.ok) return res.status(auth.status).json(auth.body);
+
+  const prompt = String(req.body?.prompt || '').trim();
+  const ratio = String(req.body?.ratio || '1:1');
+  if (!prompt || prompt.length > 4000) {
+    return res.status(400).json({ error: { message: 'Enter an image prompt (maximum 4000 characters).' } });
+  }
+  if (!['1:1', '16:9', '9:16', '4:3', '3:4'].includes(ratio)) {
+    return res.status(400).json({ error: { message: 'Unsupported image ratio.' } });
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 120000);
+  try {
+    const upstream = await fetch('https://api.omegatech.app/api/ai/Freegen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'image/png, application/json' },
+      body: JSON.stringify({ action: 'generate', prompt, ratio }),
+      signal: controller.signal
+    });
+
+    if (!upstream.ok) {
+      return res.status(502).json({ error: { message: `Image provider failed (${upstream.status}).` } });
+    }
+
+    const type = (upstream.headers.get('content-type') || '').toLowerCase();
+    if (type.startsWith('image/')) {
+      const bytes = Buffer.from(await upstream.arrayBuffer());
+      if (!bytes.length || bytes.length > 15 * 1024 * 1024) {
+        return res.status(502).json({ error: { message: 'The generated image was empty or too large.' } });
+      }
+      res.set('Content-Type', type.includes('png') ? 'image/png' : type);
+      res.set('Cache-Control', 'no-store');
+      return res.status(200).send(bytes);
+    }
+
+    // Some provider responses wrap the image in base64 or a result URL.
+    const data = await upstream.json();
+    const encoded = data?.imageBase64 || data?.base64 || data?.image;
+    if (typeof encoded === 'string' && !/^https?:\/\//i.test(encoded)) {
+      const clean = encoded.replace(/^data:image\/[^;]+;base64,/i, '');
+      const bytes = Buffer.from(clean, 'base64');
+      if (bytes.length && bytes.length <= 15 * 1024 * 1024) {
+        res.set('Content-Type', 'image/png');
+        res.set('Cache-Control', 'no-store');
+        return res.status(200).send(bytes);
+      }
+    }
+
+    return res.status(502).json({
+      error: { message: 'The image provider did not return raw image data. Check its current response format.' }
+    });
+  } catch (e) {
+    return res.status(e?.name === 'AbortError' ? 504 : 502).json({
+      error: { message: e?.name === 'AbortError' ? 'Image generation timed out.' : 'Could not reach the image provider.' }
+    });
+  } finally {
+    clearTimeout(timer);
   }
 });
 

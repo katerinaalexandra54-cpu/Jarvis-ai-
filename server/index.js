@@ -4,7 +4,6 @@ import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { forwardChat } from './ai.js';
-import { authorize, registerDevice } from './auth.js';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

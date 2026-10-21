@@ -1,4 +1,4 @@
-import { authorize } from './auth.js';
+import { authorize, registerDevice } from './auth.js';
 import 'dotenv/config';
 import express from 'express';
 import path from 'node:path';
